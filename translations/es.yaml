@@ -1,0 +1,28 @@
+configuration:
+  admin_username:
+    name: Usuario de administrador
+    description: "Solo hace falta para el acceso directo por puerto. No es necesario si usas la barra lateral de HA."
+  admin_password:
+    name: Contraseña de administrador
+    description: "Solo hace falta para el acceso directo por puerto. No es necesario si usas la barra lateral de HA. Mínimo 8 caracteres."
+  app_name:
+    name: Nombre de la app
+    description: Nombre mostrado a los invitados
+  contact_message:
+    name: Mensaje de contacto
+    description: Mensaje mostrado cuando caduca un enlace de invitado
+  brand_bg:
+    name: Color de fondo
+    description: "Color hexadecimal para el fondo de la página (p.ej. #F2F0E9)"
+  brand_primary:
+    name: Color principal
+    description: "Color hexadecimal para acentos y botones (p.ej. #D9523C)"
+  guest_url:
+    name: URL de invitado
+    description: "URL base externa para los enlaces de invitado (p.ej. https://invitados.micasa.es). Déjalo vacío para red local."
+  timezone:
+    name: Zona horaria
+    description: "Zona horaria IANA usada para evaluar las ventanas semanales recurrentes (p.ej. Europe/Madrid). Solo importa si usas un horario recurrente en algún token."
+  local_network_cidrs:
+    name: CIDRs de la red de casa
+    description: "Array JSON de CIDRs considerados 'red de casa' (p.ej. [\"192.168.0.0/16\"]). Si se configura, los invitados solo podrán activar cerraduras/toldos/botones estando conectados a una de estas redes. Déjalo vacío para no restringir."

@@ -202,8 +202,60 @@
           class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
       </div>
       <div>
+        <label for="f-mode" class="block text-xs font-mono uppercase tracking-wider text-muted mb-1.5">Invitation Mode</label>
+        <select id="f-mode" data-action="apply-mode-suggestion"
+          class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary cursor-pointer">
+          <option value="">Manual selection</option>
+          <option value="access">Access only</option>
+          <option value="lights">Lights only</option>
+          <option value="access,lights">Access and lights</option>
+        </select>
+        <p class="text-xs text-muted mt-1">Pre-selects entities below by keyword/domain (locks, doors, gates / lights). You can still edit the selection freely.</p>
+      </div>
+      <div>
         <label class="block text-xs font-mono uppercase tracking-wider text-muted mb-1.5">Entities</label>
         <div id="create-picker"></div>
+      </div>
+      <div class="border-t border-border-light dark:border-border-dark pt-4">
+        <label class="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-muted mb-1.5">
+          <input type="checkbox" id="f-schedule-enabled" data-action="toggle-schedule">
+          Schedule for later (instead of active immediately)
+        </label>
+        <div id="f-schedule-fields" class="hidden space-y-3 mt-2">
+          <div>
+            <label for="f-starts-at" class="block text-xs text-muted mb-1">Starts at</label>
+            <input id="f-starts-at" type="datetime-local"
+              class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+          </div>
+          <div>
+            <label class="flex items-center gap-2 text-xs text-muted mb-1.5">
+              <input type="checkbox" id="f-recurrence-enabled" data-action="toggle-recurrence">
+              Repeat weekly (only allow access within this window on the selected days)
+            </label>
+            <div id="f-recurrence-fields" class="hidden space-y-2">
+              <div class="flex flex-wrap gap-2">
+                ${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d, i) => `
+                  <label class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border-light dark:border-border-dark text-xs cursor-pointer">
+                    <input type="checkbox" class="f-weekday" value="${i}"> ${d}
+                  </label>`).join('')}
+              </div>
+              <div class="flex gap-2">
+                <input id="f-recurrence-start" type="time" value="09:00"
+                  class="flex-1 px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary">
+                <input id="f-recurrence-end" type="time" value="13:00"
+                  class="flex-1 px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary">
+              </div>
+            </div>
+          </div>
+          <div>
+            <label for="f-notify-service" class="block text-xs text-muted mb-1">Send link automatically via <span class="font-mono">notify.*</span> <span class="text-muted/60">(optional)</span></label>
+            <input id="f-notify-service" type="text" placeholder="notify.mobile_app_14t"
+              class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm font-mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+            <label for="f-notify-lead-hours" class="block text-xs text-muted mt-2 mb-1">Send this many hours before it starts</label>
+            <input id="f-notify-lead-hours" type="number" min="0" step="1" value="0"
+              class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+          </div>
+        </div>
       </div>
     </div>
     <div id="create-error" role="alert" class="text-primary text-xs min-h-[18px] mt-2"></div>
@@ -588,6 +640,14 @@ function renderTokens() {
             <span aria-hidden="true" class="material-symbols-outlined text-base">lan</span>
             <span>${t.ip_allowlist ? esc(t.ip_allowlist.join(', ')) : 'Any IP'}</span>
           </div>
+          ${t.starts_at ? `<div class="flex items-center gap-2 text-muted col-span-2">
+            <span aria-hidden="true" class="material-symbols-outlined text-base">schedule</span>
+            <span>Starts ${relativeTime(t.starts_at)}${t.recurrence ? ` &middot; ${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].filter((_, i) => t.recurrence.weekdays.includes(i)).join(', ')} ${esc(t.recurrence.start)}–${esc(t.recurrence.end)}` : ''}</span>
+          </div>` : ''}
+          <div class="flex items-center gap-2 text-muted col-span-2">
+            <span aria-hidden="true" class="material-symbols-outlined text-base">${t.bound_claimed_at ? 'phonelink_lock' : 'phonelink'}</span>
+            <span>${t.bound_claimed_at ? `Linked to a device since ${relativeTime(t.bound_claimed_at)}` : 'Not yet claimed by a device'}</span>
+          </div>
         </div>
 
         <div class="grid grid-cols-3 gap-2">
@@ -618,6 +678,12 @@ function renderTokens() {
             <span aria-hidden="true" class="material-symbols-outlined text-sm">block</span> Revoke
           </button>
         </div>
+        ${t.bound_claimed_at ? `<div class="mt-2">
+          <button data-id="${esc(t.id)}" data-action="confirm-unbind"
+            class="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-display font-medium border border-border-light dark:border-border-dark hover:bg-soot/5 dark:hover:bg-white/5 transition-colors">
+            <span aria-hidden="true" class="material-symbols-outlined text-sm">phonelink_erase</span> Unbind device
+          </button>
+        </div>` : ''}
       </div>
     </div></li>`;
   }).join('');
@@ -728,6 +794,19 @@ function pickerRemove(containerId, entityId) {
 }
 
 // ── Create Token Modal ────────────────────────────────────────────────
+async function applyModeSuggestion(categories) {
+  if (!categories) return;
+  const r = await fetch(`${BASE}/admin/ha/suggested-entities?categories=${encodeURIComponent(categories)}`);
+  if (!r.ok) { showToast('Failed to load suggestions', 'error'); return; }
+  const suggested = await r.json();
+  suggested.forEach(e => createPicker.selected.add(e.entity_id));
+  renderPicker('create-picker', createPicker);
+}
+
+function toLocalDatetimeValue(date) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
 function openCreateModal(preset = {}) {
   createPicker = { selected: new Set(preset.entityIds || []), filter: 'all', search: '' };
   document.getElementById('create-modal-title').textContent = preset.title || 'Create Guest Token';
@@ -735,11 +814,22 @@ function openCreateModal(preset = {}) {
   document.getElementById('f-slug').value = '';
   document.getElementById('f-ip').value = (preset.ipAllowlist || []).join(', ');
   document.getElementById('f-expiry').value = preset.expiryValue || '86400';
+  document.getElementById('f-mode').value = '';
   document.getElementById('create-error').textContent = '';
   document.getElementById('f-custom-expiry').classList.add('hidden');
   document.getElementById('f-never-warn').classList.add('hidden');
   document.getElementById('f-custom-error').classList.add('hidden');
   document.getElementById('f-custom-datetime').value = '';
+  document.getElementById('f-schedule-enabled').checked = false;
+  document.getElementById('f-schedule-fields').classList.add('hidden');
+  document.getElementById('f-starts-at').value = toLocalDatetimeValue(new Date(Date.now() + 3600000));
+  document.getElementById('f-recurrence-enabled').checked = false;
+  document.getElementById('f-recurrence-fields').classList.add('hidden');
+  document.querySelectorAll('.f-weekday').forEach(cb => cb.checked = false);
+  document.getElementById('f-recurrence-start').value = '09:00';
+  document.getElementById('f-recurrence-end').value = '13:00';
+  document.getElementById('f-notify-service').value = '';
+  document.getElementById('f-notify-lead-hours').value = '0';
   toggleCustomExpiry('f');
   renderPicker('create-picker', createPicker);
   openModal('create-modal');
@@ -764,6 +854,27 @@ async function submitCreate() {
     expires_in_seconds: expiresIn,
     ip_allowlist: ipList,
   };
+
+  if (document.getElementById('f-schedule-enabled').checked) {
+    const startsAtVal = document.getElementById('f-starts-at').value;
+    if (!startsAtVal) { errEl.textContent = 'Choose a start date/time.'; return; }
+    body.starts_at = Math.floor(new Date(startsAtVal).getTime() / 1000);
+
+    if (document.getElementById('f-recurrence-enabled').checked) {
+      const weekdays = [...document.querySelectorAll('.f-weekday:checked')].map(cb => parseInt(cb.value, 10));
+      const start = document.getElementById('f-recurrence-start').value;
+      const end = document.getElementById('f-recurrence-end').value;
+      if (!weekdays.length) { errEl.textContent = 'Select at least one day for the recurring schedule.'; return; }
+      if (end <= start) { errEl.textContent = 'Recurring end time must be after start time.'; return; }
+      body.recurrence = { weekdays, start, end };
+    }
+
+    const notifyService = document.getElementById('f-notify-service').value.trim();
+    if (notifyService) {
+      body.notify_service = notifyService;
+      body.notify_lead_seconds = Math.max(0, parseInt(document.getElementById('f-notify-lead-hours').value, 10) || 0) * 3600;
+    }
+  }
 
     const r = await fetch(`${BASE}/admin/tokens`, {
     method: 'POST',
@@ -906,6 +1017,14 @@ async function confirmDelete(id) {
     const r = await fetch(`${BASE}/admin/tokens/${id}`, {method: 'DELETE'});
     if (r.ok) { showToast('Token deleted', 'success'); loadTokens(); loadActivity(); }
     else showToast('Error deleting token', 'error');
+  });
+}
+
+async function confirmUnbind(id) {
+  openConfirmModal('Unbind Device', 'The next device that opens this link will claim it. Use this if the guest lost or changed their phone.', async () => {
+    const r = await fetch(`${BASE}/admin/tokens/${id}/unbind`, {method: 'PATCH'});
+    if (r.ok) { showToast('Device unbound', 'success'); loadTokens(); }
+    else showToast('Error unbinding token', 'error');
   });
 }
 
@@ -1164,6 +1283,7 @@ document.addEventListener('click', e => {
     case 'show-qr': showQr(el.dataset.url); break;
     case 'confirm-revoke': confirmRevoke(el.dataset.id); break;
     case 'confirm-delete': confirmDelete(el.dataset.id); break;
+    case 'confirm-unbind': confirmUnbind(el.dataset.id); break;
 
     // Entity picker
     case 'picker-remove': pickerRemove(el.dataset.container, el.dataset.entity); break;
@@ -1185,6 +1305,15 @@ document.addEventListener('keydown', e => {
 document.addEventListener('change', e => {
   if (e.target.dataset.action === 'toggle-custom-expiry') {
     toggleCustomExpiry(e.target.dataset.prefix);
+  }
+  if (e.target.dataset.action === 'apply-mode-suggestion') {
+    applyModeSuggestion(e.target.value);
+  }
+  if (e.target.dataset.action === 'toggle-schedule') {
+    document.getElementById('f-schedule-fields').classList.toggle('hidden', !e.target.checked);
+  }
+  if (e.target.dataset.action === 'toggle-recurrence') {
+    document.getElementById('f-recurrence-fields').classList.toggle('hidden', !e.target.checked);
   }
 });
 

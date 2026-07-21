@@ -20,3 +20,9 @@ configuration:
   guest_url:
     name: Guest URL
     description: "External base URL for guest links (e.g., https://guest.myhouse.com). Leave empty for local network."
+  timezone:
+    name: Timezone
+    description: "IANA timezone used to evaluate recurring weekly access windows (e.g. Europe/Madrid). Only matters if you use a recurring schedule on a token."
+  local_network_cidrs:
+    name: Home Network CIDRs
+    description: "JSON array of CIDRs considered 'home network' (e.g. [\"192.168.0.0/16\"]). When set, guests can only trigger locks/covers/buttons while connected to one of these ranges. Leave empty for no restriction."

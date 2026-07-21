@@ -4,11 +4,16 @@ from pydantic import ValidationError
 
 from app.models import (
     AdminLoginRequest,
+    ALLOWED_SERVICES,
     CommandRequest,
+    LOCAL_ONLY_DOMAINS,
     NEVER_EXPIRES_SECONDS,
+    RecurrenceSchedule,
+    SUPPORTED_DOMAINS,
     TokenCreateRequest,
     TokenUpdateEntitiesRequest,
     TokenUpdateExpiryRequest,
+    TokenUpdateScheduleRequest,
 )
 
 
@@ -163,3 +168,91 @@ class TestAdminLoginRequest:
 def test_never_expires_is_2099():
     """NEVER_EXPIRES_SECONDS matches 2099-12-31T00:00:00Z."""
     assert NEVER_EXPIRES_SECONDS == 4102444800
+
+
+class TestRecurrenceSchedule:
+    def test_valid(self):
+        r = RecurrenceSchedule(weekdays=[0, 2], start="09:00", end="13:00")
+        assert r.weekdays == [0, 2]
+
+    def test_end_before_start_rejected(self):
+        with pytest.raises(ValidationError):
+            RecurrenceSchedule(weekdays=[0], start="13:00", end="09:00")
+
+    def test_end_equal_start_rejected(self):
+        """Overnight-crossing windows aren't supported — reject rather than misbehave."""
+        with pytest.raises(ValidationError):
+            RecurrenceSchedule(weekdays=[0], start="09:00", end="09:00")
+
+    def test_weekday_out_of_range_rejected(self):
+        with pytest.raises(ValidationError):
+            RecurrenceSchedule(weekdays=[7], start="09:00", end="13:00")
+
+    def test_negative_weekday_rejected(self):
+        with pytest.raises(ValidationError):
+            RecurrenceSchedule(weekdays=[-1], start="09:00", end="13:00")
+
+    def test_empty_weekdays_rejected(self):
+        with pytest.raises(ValidationError):
+            RecurrenceSchedule(weekdays=[], start="09:00", end="13:00")
+
+    def test_malformed_time_rejected(self):
+        with pytest.raises(ValidationError):
+            RecurrenceSchedule(weekdays=[0], start="9:00", end="13:00")
+
+
+class TestTokenCreateRequestScheduling:
+    def test_starts_at_and_recurrence_default_none(self):
+        """No schedule fields = today's exact behavior (active immediately)."""
+        t = TokenCreateRequest(label="Guest", entity_ids=["light.a"], expires_in_seconds=3600)
+        assert t.starts_at is None
+        assert t.recurrence is None
+        assert t.notify_service is None
+
+    def test_valid_with_schedule(self):
+        t = TokenCreateRequest(
+            label="Guest", entity_ids=["input_button.portal"], expires_in_seconds=3600,
+            starts_at=1000,
+            recurrence={"weekdays": [1, 3], "start": "09:00", "end": "13:00"},
+            notify_service="notify.mobile_app_test",
+            notify_lead_seconds=3600,
+        )
+        assert t.starts_at == 1000
+        assert t.recurrence.weekdays == [1, 3]
+
+    def test_notify_lead_without_notify_service_rejected(self):
+        with pytest.raises(ValidationError):
+            TokenCreateRequest(
+                label="Guest", entity_ids=["light.a"], expires_in_seconds=3600,
+                notify_lead_seconds=3600,
+            )
+
+    def test_invalid_notify_service_format_rejected(self):
+        with pytest.raises(ValidationError):
+            TokenCreateRequest(
+                label="Guest", entity_ids=["light.a"], expires_in_seconds=3600,
+                notify_service="not-a-notify-service",
+            )
+
+
+class TestTokenUpdateScheduleRequest:
+    def test_valid_empty(self):
+        r = TokenUpdateScheduleRequest()
+        assert r.starts_at is None
+        assert r.recurrence is None
+
+    def test_valid_with_values(self):
+        r = TokenUpdateScheduleRequest(starts_at=2000, recurrence={"weekdays": [0], "start": "10:00", "end": "11:00"})
+        assert r.starts_at == 2000
+
+
+class TestButtonDomainSupport:
+    def test_button_and_input_button_allowed(self):
+        assert ALLOWED_SERVICES["button"] == {"press"}
+        assert ALLOWED_SERVICES["input_button"] == {"press"}
+        assert "button" in SUPPORTED_DOMAINS
+        assert "input_button" in SUPPORTED_DOMAINS
+
+    def test_local_only_domains(self):
+        assert LOCAL_ONLY_DOMAINS == {"lock", "button", "input_button", "cover"}
+        assert "light" not in LOCAL_ONLY_DOMAINS

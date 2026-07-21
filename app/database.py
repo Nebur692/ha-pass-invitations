@@ -95,11 +95,16 @@ async def create_token(
     entity_ids: list[str],
     expires_at: int,
     ip_allowlist: list[str] | None,
+    starts_at: int | None = None,
+    recurrence: dict | None = None,
+    notify_service: str | None = None,
+    notify_lead_seconds: int | None = None,
 ) -> dict[str, Any]:
     db = await get_db()
     token_id = str(uuid.uuid4())
     now = int(time.time())
     ip_json = json.dumps(ip_allowlist) if ip_allowlist else None
+    recurrence_json = json.dumps(recurrence) if recurrence else None
 
     # Deduplicate entity IDs
     entity_ids = list(dict.fromkeys(entity_ids))
@@ -108,9 +113,11 @@ async def create_token(
         await db.execute("BEGIN IMMEDIATE")
         await db.execute(
             """INSERT INTO tokens
-               (id, slug, label, created_at, expires_at, ip_allowlist)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (token_id, slug, label, now, expires_at, ip_json),
+               (id, slug, label, created_at, expires_at, ip_allowlist,
+                starts_at, recurrence, notify_service, notify_lead_seconds)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (token_id, slug, label, now, expires_at, ip_json,
+             starts_at, recurrence_json, notify_service, notify_lead_seconds),
         )
         if entity_ids:
             await db.executemany(
@@ -179,6 +186,67 @@ async def update_token_expiry(token_id: str, expires_at: int) -> None:
     await db.execute(
         "UPDATE tokens SET expires_at = ? WHERE id = ?",
         (expires_at, token_id),
+    )
+    await db.commit()
+
+
+async def update_token_schedule(
+    token_id: str,
+    starts_at: int | None,
+    recurrence: dict | None,
+) -> None:
+    db = await get_db()
+    recurrence_json = json.dumps(recurrence) if recurrence else None
+    await db.execute(
+        "UPDATE tokens SET starts_at = ?, recurrence = ? WHERE id = ?",
+        (starts_at, recurrence_json, token_id),
+    )
+    await db.commit()
+
+
+async def mark_notify_sent(token_id: str) -> None:
+    db = await get_db()
+    await db.execute(
+        "UPDATE tokens SET notify_sent = 1 WHERE id = ?",
+        (token_id,),
+    )
+    await db.commit()
+
+
+async def list_tokens_pending_notify(now: int) -> list[aiosqlite.Row]:
+    """Tokens whose scheduled notify lead time has arrived but haven't been sent yet."""
+    db = await get_db()
+    async with db.execute(
+        """SELECT * FROM tokens
+           WHERE notify_service IS NOT NULL
+             AND notify_sent = 0
+             AND revoked = 0
+             AND starts_at IS NOT NULL
+             AND (starts_at - COALESCE(notify_lead_seconds, 0)) <= ?
+             AND starts_at > ?""",
+        (now, now),
+    ) as cur:
+        return await cur.fetchall()
+
+
+async def claim_token_binding(token_id: str, secret: str, claimed_at: int) -> None:
+    """Bind a token to the first browser that opens it (best-effort race:
+    only succeeds if still unclaimed, so two near-simultaneous first opens
+    can't both "win")."""
+    db = await get_db()
+    await db.execute(
+        """UPDATE tokens SET bound_secret = ?, bound_claimed_at = ?
+           WHERE id = ? AND bound_secret IS NULL""",
+        (secret, claimed_at, token_id),
+    )
+    await db.commit()
+
+
+async def unbind_token(token_id: str) -> None:
+    db = await get_db()
+    await db.execute(
+        "UPDATE tokens SET bound_secret = NULL, bound_claimed_at = NULL WHERE id = ?",
+        (token_id,),
     )
     await db.commit()
 

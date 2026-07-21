@@ -3,16 +3,26 @@
 # slug grants access. CSRF is mitigated by the fact that all state-changing
 # operations require the slug in the URL path (not a cookie). The admin
 # dashboard uses SameSite=strict cookies for CSRF protection.
+#
+# Device-binding note: a second, separate cookie (hp_bind_<slug>, see
+# _verify_or_claim_binding) is set on first use to lock a guest link to the
+# browser that first opened it. This does NOT replace slug-based auth above —
+# it's an additional restriction, never a substitute for the slug — and it's
+# SameSite=Strict/HttpOnly so it plays no role in CSRF.
 import asyncio
 import ipaddress
 import json
 import logging
 import re
+import secrets
 import time
+from datetime import datetime, timedelta
+from enum import Enum
 from typing import AsyncIterator
+from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Path, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Path, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -24,6 +34,7 @@ from app.models import (
     ALLOWED_SERVICES,
     CommandRequest,
     FORBIDDEN_DATA_KEYS,
+    LOCAL_ONLY_DOMAINS,
     NEVER_EXPIRES_SECONDS,
 )
 from app.rate_limiter import rate_limiter
@@ -80,28 +91,162 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _ip_in_cidrs(client_ip: str, cidrs: list[str]) -> bool:
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    return any(addr in ipaddress.ip_network(cidr, strict=False) for cidr in cidrs)
+
+
 def _enforce_ip_allowlist(row, request: Request) -> None:
     if not row["ip_allowlist"]:
         return
     client_ip = _client_ip(request)
     allowed_cidrs: list[str] = json.loads(row["ip_allowlist"])
-    try:
-        addr = ipaddress.ip_address(client_ip)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid client IP")
-    if not any(addr in ipaddress.ip_network(cidr, strict=False) for cidr in allowed_cidrs):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="IP not allowed")
+    if client_ip == "unknown" or not _ip_in_cidrs(client_ip, allowed_cidrs):
+        detail = "Invalid client IP" if client_ip == "unknown" else "IP not allowed"
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+def _enforce_local_network_for_domain(entity_domain: str, request: Request) -> None:
+    """Fixed security policy (not per-token): commands on LOCAL_ONLY_DOMAINS
+    (locks, buttons, covers — anything that opens something physical) require
+    the request to originate from the configured home-network CIDRs. Lights
+    and other domains are never restricted this way. Viewing the guest link
+    itself (page/state/stream) is also never restricted this way — only
+    command execution on these specific domains."""
+    if entity_domain not in LOCAL_ONLY_DOMAINS or not settings.local_network_cidrs:
+        return
+    if not _ip_in_cidrs(_client_ip(request), settings.local_network_cidrs):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires being connected to the home network",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Scheduling (advance start + recurring weekly windows)
+# ---------------------------------------------------------------------------
+
+class TokenState(str, Enum):
+    ACTIVE = "active"
+    GONE = "gone"                     # not found / revoked / past expires_at
+    NOT_YET_ACTIVE = "not_yet_active"  # before starts_at, or outside today's recurrence window
+
+
+def _within_recurrence(recurrence: dict, now: int) -> bool:
+    local = datetime.fromtimestamp(now, tz=ZoneInfo(settings.timezone))
+    if local.weekday() not in recurrence["weekdays"]:
+        return False
+    hhmm = local.strftime("%H:%M")
+    return recurrence["start"] <= hhmm < recurrence["end"]
+
+
+def _token_state(row, now: int) -> TokenState:
+    if row["revoked"] or row["expires_at"] <= now:
+        return TokenState.GONE
+    if row["starts_at"] is not None and row["starts_at"] > now:
+        return TokenState.NOT_YET_ACTIVE
+    if row["recurrence"]:
+        if not _within_recurrence(json.loads(row["recurrence"]), now):
+            return TokenState.NOT_YET_ACTIVE
+    return TokenState.ACTIVE
+
+
+def _next_available_at(row, now: int) -> int | None:
+    """Best-effort estimate of when a NOT_YET_ACTIVE token becomes usable
+    again, for display to the guest. Returns None if there's nothing to wait
+    for (shouldn't normally be called in that case)."""
+    if row["starts_at"] is not None and row["starts_at"] > now:
+        starts_at = row["starts_at"]
+    else:
+        starts_at = now
+
+    if not row["recurrence"]:
+        return starts_at
+
+    recurrence = json.loads(row["recurrence"])
+    tz = ZoneInfo(settings.timezone)
+    cursor = datetime.fromtimestamp(starts_at, tz=tz)
+    # Scan forward day by day (max 8 to cover a full week + today) for the
+    # next day matching the recurrence, then anchor to its start time.
+    for _ in range(8):
+        if cursor.weekday() in recurrence["weekdays"]:
+            hh, mm = (int(x) for x in recurrence["start"].split(":"))
+            candidate = cursor.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if candidate.timestamp() >= starts_at:
+                return int(candidate.timestamp())
+        cursor = (cursor + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Single-browser binding
+# ---------------------------------------------------------------------------
+
+def _binding_cookie_name(slug: str) -> str:
+    return f"hp_bind_{slug}"
+
+
+async def _verify_or_claim_binding(row, request: Request) -> str | None:
+    """Enforces that a guest link can only ever be used from the browser
+    that first opened it. Returns a secret the caller must set as a cookie
+    if this request just claimed the token; returns None if verification
+    passed against an already-bound token (nothing new to set). Raises 403
+    if bound to a different device.
+    """
+    slug = row["slug"]
+    incoming = request.cookies.get(_binding_cookie_name(slug))
+
+    if row["bound_secret"] is None:
+        secret = secrets.token_hex(32)
+        await db.claim_token_binding(row["id"], secret, int(time.time()))
+        fresh = await db.get_token_by_slug(slug)
+        if fresh["bound_secret"] == secret:
+            return secret  # we won the claim race — caller sets the cookie
+        row = fresh  # lost the race to a concurrent request — verify below
+
+    if not incoming or not secrets.compare_digest(incoming, row["bound_secret"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This link is already in use on another device",
+        )
+    return None
+
+
+def _is_https(request: Request) -> bool:
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    return request.url.scheme == "https" or forwarded_proto == "https"
+
+
+def _set_binding_cookie(response: Response, request: Request, slug: str, secret: str, expires_at: int) -> None:
+    max_age = max(1, expires_at - int(time.time())) if expires_at < NEVER_EXPIRES_SECONDS else None
+    response.set_cookie(
+        _binding_cookie_name(slug),
+        secret,
+        httponly=True,
+        samesite="strict",
+        secure=_is_https(request),
+        path=f"/g/{slug}",
+        max_age=max_age,
+    )
 
 
 async def _validate_token(slug: str, request: Request):
-    """Load and validate a token by slug. Raises HTTP 410 on any issue."""
+    """Load and validate a token by slug. Raises HTTP 410 if gone (not found,
+    revoked, past expiry — unchanged from before), or 403 if scheduled but
+    not currently active (before starts_at, or outside a recurrence window)."""
     row = await db.get_token_by_slug(slug)
     if not row:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Access unavailable")
 
     now = int(time.time())
-    if row["revoked"] or row["expires_at"] <= now:
+    state = _token_state(row, now)
+    if state is TokenState.GONE:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Access unavailable")
+    if state is TokenState.NOT_YET_ACTIVE:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access not yet active")
 
     _enforce_ip_allowlist(row, request)
 
@@ -131,6 +276,14 @@ def _logbook_payload(payload: dict) -> dict:
         if target_entity_id and "." in target_entity_id:
             data["domain"] = target_entity_id.split(".", 1)[0]
         return data
+    if payload["activity"] == "first_use":
+        # "Check-in" moment: this is when the link got bound to a
+        # device for the first time — distinct from every subsequent page_load
+        # so a host-facing automation can notify on this specific event.
+        return {
+            "name": "HAPass",
+            "message": f"{token_label} opened the link for the first time",
+        }
     return {
         "name": "HAPass",
         "message": f"{token_label} opened guest link",
@@ -177,21 +330,35 @@ def _schedule_page_load_activity(background_tasks: BackgroundTasks, row) -> None
 @router.get("/{slug}", response_class=HTMLResponse)
 async def guest_pwa(background_tasks: BackgroundTasks, request: Request, slug: str = Path(max_length=64)):
     row = await db.get_token_by_slug(slug)
-    expired = False
-    if not row or row["revoked"] or row["expires_at"] <= int(time.time()):
-        expired = True
+    now = int(time.time())
+    state = _token_state(row, now) if row else TokenState.GONE
 
-    if expired:
+    if state is TokenState.GONE:
         ctx = base_context(request)
         ctx.update({"slug": slug, "contact_message": settings.contact_message})
         return templates.TemplateResponse(request, "expired.html", ctx, status_code=410)
 
     try:
         _enforce_ip_allowlist(row, request)
+        new_binding_secret = await _verify_or_claim_binding(row, request)
     except HTTPException as exc:
         ctx = base_context(request)
         ctx.update({"slug": slug, "contact_message": settings.contact_message})
         return templates.TemplateResponse(request, "expired.html", ctx, status_code=exc.status_code)
+
+    if state is TokenState.NOT_YET_ACTIVE:
+        ctx = base_context(request)
+        ctx.update({
+            "slug": slug,
+            "label": row["label"],
+            "available_at": _next_available_at(row, now),
+            "contact_message": settings.contact_message,
+        })
+        resp = templates.TemplateResponse(request, "not_active_yet.html", ctx, status_code=403)
+        if new_binding_secret:
+            _set_binding_cookie(resp, request, slug, new_binding_secret, row["expires_at"])
+        return resp
+
     await db.touch_token(row["id"])
     await db.log_access(
         token_id=row["id"],
@@ -200,6 +367,8 @@ async def guest_pwa(background_tasks: BackgroundTasks, request: Request, slug: s
         user_agent=request.headers.get("User-Agent"),
     )
     _schedule_page_load_activity(background_tasks, row)
+    if new_binding_secret:
+        _schedule_activity_event(background_tasks, _activity_payload(row, "first_use"))
     ctx = base_context(request)
     ctx.update({
         "slug": slug,
@@ -208,7 +377,10 @@ async def guest_pwa(background_tasks: BackgroundTasks, request: Request, slug: s
         "contact_message": settings.contact_message,
         "never_expires": NEVER_EXPIRES_SECONDS,
     })
-    return templates.TemplateResponse(request, "guest_pwa.html", ctx)
+    resp = templates.TemplateResponse(request, "guest_pwa.html", ctx)
+    if new_binding_secret:
+        _set_binding_cookie(resp, request, slug, new_binding_secret, row["expires_at"])
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -247,8 +419,11 @@ async def guest_manifest(request: Request, slug: str = Path(max_length=64)):
 # ---------------------------------------------------------------------------
 
 @router.get("/{slug}/state")
-async def guest_state(request: Request, slug: str = Path(max_length=64)):
+async def guest_state(request: Request, response: Response, slug: str = Path(max_length=64)):
     row = await _validate_token(slug, request)
+    new_binding_secret = await _verify_or_claim_binding(row, request)
+    if new_binding_secret:
+        _set_binding_cookie(response, request, slug, new_binding_secret, row["expires_at"])
     entity_ids = await db.get_token_entities(row["id"])
 
     allowed = set(entity_ids)
@@ -297,7 +472,8 @@ async def _event_generator(token_id: str, slug: str, request: Request) -> AsyncI
 @router.get("/{slug}/stream")
 async def guest_stream(request: Request, slug: str = Path(max_length=64)):
     row = await _validate_token(slug, request)
-    return StreamingResponse(
+    new_binding_secret = await _verify_or_claim_binding(row, request)
+    resp = StreamingResponse(
         _event_generator(row["id"], slug, request),
         media_type="text/event-stream",
         headers={
@@ -305,6 +481,9 @@ async def guest_stream(request: Request, slug: str = Path(max_length=64)):
             "X-Accel-Buffering": "no",
         },
     )
+    if new_binding_secret:
+        _set_binding_cookie(resp, request, slug, new_binding_secret, row["expires_at"])
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -316,10 +495,15 @@ async def guest_command(
     body: CommandRequest,
     background_tasks: BackgroundTasks,
     request: Request,
+    response: Response,
     slug: str = Path(max_length=64),
 ):
     row = await _validate_token(slug, request)
     token_id = row["id"]
+
+    new_binding_secret = await _verify_or_claim_binding(row, request)
+    if new_binding_secret:
+        _set_binding_cookie(response, request, slug, new_binding_secret, row["expires_at"])
 
     allowed = await rate_limiter.check(token_id, COMMAND_RPM)
     if not allowed:
@@ -337,6 +521,7 @@ async def guest_command(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Entity not in allowlist")
 
     entity_domain = body.entity_id.split(".")[0]
+    _enforce_local_network_for_domain(entity_domain, request)
 
     if "." in body.service:
         svc_domain, svc_name = body.service.split(".", 1)

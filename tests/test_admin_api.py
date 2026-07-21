@@ -500,3 +500,135 @@ async def test_ha_entities_returns_502_when_ha_unreachable(client, admin_session
     resp = await client.get("/admin/ha/entities", cookies=admin_session)
     assert resp.status_code == 502
     assert "unreachable" in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Scheduling fields on token creation
+# ---------------------------------------------------------------------------
+
+async def test_create_token_with_schedule_persists(client, admin_session, mock_ha_client):
+    now = int(time.time())
+    resp = await client.post(
+        "/admin/tokens",
+        json={
+            "label": "Cleaner",
+            "entity_ids": ["input_button.front_gate"],
+            "expires_in_seconds": 30 * 86400,
+            "starts_at": now + 3600,
+            "recurrence": {"weekdays": [1, 3], "start": "09:00", "end": "13:00"},
+            "notify_service": "notify.mobile_app_14t",
+            "notify_lead_seconds": 7200,
+        },
+        cookies=admin_session,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["starts_at"] == now + 3600
+    assert data["recurrence"] == {"weekdays": [1, 3], "start": "09:00", "end": "13:00"}
+    assert data["notify_service"] == "notify.mobile_app_14t"
+    assert data["notify_lead_seconds"] == 7200
+
+    row = await db.get_token_by_id(data["id"])
+    assert row["starts_at"] == now + 3600
+
+
+async def test_create_token_starts_at_after_expiry_rejected(client, admin_session, mock_ha_client):
+    now = int(time.time())
+    resp = await client.post(
+        "/admin/tokens",
+        json={
+            "label": "Bad Schedule",
+            "entity_ids": ["light.a"],
+            "expires_in_seconds": 3600,
+            "starts_at": now + 7200,  # after the resulting expires_at
+        },
+        cookies=admin_session,
+    )
+    assert resp.status_code == 422
+    assert "starts_at" in resp.json()["detail"]
+
+
+async def test_update_token_schedule_persists(client, admin_session, mock_ha_client, sample_token):
+    now = int(time.time())
+    resp = await client.patch(
+        f"/admin/tokens/{sample_token['id']}/schedule",
+        json={"starts_at": now + 500, "recurrence": {"weekdays": [0], "start": "10:00", "end": "11:00"}},
+        cookies=admin_session,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["starts_at"] == now + 500
+    assert data["recurrence"] == {"weekdays": [0], "start": "10:00", "end": "11:00"}
+
+
+async def test_update_token_schedule_not_found(client, admin_session, mock_ha_client):
+    resp = await client.patch(
+        "/admin/tokens/nonexistent/schedule",
+        json={"starts_at": int(time.time()) + 500},
+        cookies=admin_session,
+    )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Unbind
+# ---------------------------------------------------------------------------
+
+async def test_unbind_token_clears_binding(client, admin_session, mock_ha_client, sample_token):
+    await db.claim_token_binding(sample_token["id"], "somesecret", int(time.time()))
+    resp = await client.patch(f"/admin/tokens/{sample_token['id']}/unbind", cookies=admin_session)
+    assert resp.status_code == 200
+    assert resp.json()["bound_claimed_at"] is None
+    row = await db.get_token_by_id(sample_token["id"])
+    assert row["bound_secret"] is None
+
+
+async def test_unbind_nonexistent_token_404(client, admin_session, mock_ha_client):
+    resp = await client.patch("/admin/tokens/nonexistent/unbind", cookies=admin_session)
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Suggested entities (narrow, category-based autodetection)
+# ---------------------------------------------------------------------------
+
+async def test_suggested_entities_categorizes_correctly(client, admin_session, mock_ha_client):
+    mock_ha_client["get_states"].return_value = [
+        {"entity_id": "lock.puerta_principal", "state": "locked", "attributes": {"friendly_name": "Puerta Principal"}},
+        {"entity_id": "input_button.front_gate", "state": "unknown", "attributes": {"friendly_name": "Portal"}},
+        {"entity_id": "light.salon", "state": "on", "attributes": {"friendly_name": "Salon"}},
+        {"entity_id": "switch.regleta_cocina", "state": "on", "attributes": {"friendly_name": "Regleta cocina"}},
+        # Noise that must NOT be suggested in either category:
+        {"entity_id": "sensor.temperatura", "state": "21", "attributes": {"friendly_name": "Temperatura"}},
+        {"entity_id": "climate.salon", "state": "heat", "attributes": {"friendly_name": "Termostato salon"}},
+        {"entity_id": "lock.trastero_sin_keyword", "state": "locked", "attributes": {"friendly_name": "Something Else"}},
+    ]
+    resp = await client.get("/admin/ha/suggested-entities?categories=access,lights", cookies=admin_session)
+    assert resp.status_code == 200
+    data = resp.json()
+    by_id = {e["entity_id"]: e for e in data}
+
+    assert by_id["lock.puerta_principal"]["category"] == "access"
+    assert by_id["input_button.front_gate"]["category"] == "access"
+    assert by_id["light.salon"]["category"] == "lights"
+
+    assert "sensor.temperatura" not in by_id
+    assert "climate.salon" not in by_id
+    # A lock domain entity with no access keyword in id/name isn't suggested —
+    # deliberately narrow, unlike a "detect every integration" dashboard.
+    assert "lock.trastero_sin_keyword" not in by_id
+    # switch.regleta_cocina has no light keyword and isn't domain "light" —
+    # not suggested under "lights" either.
+    assert "switch.regleta_cocina" not in by_id
+
+
+async def test_suggested_entities_single_category(client, admin_session, mock_ha_client):
+    mock_ha_client["get_states"].return_value = [
+        {"entity_id": "lock.puerta", "state": "locked", "attributes": {"friendly_name": "Puerta"}},
+        {"entity_id": "light.salon", "state": "on", "attributes": {"friendly_name": "Salon"}},
+    ]
+    resp = await client.get("/admin/ha/suggested-entities?categories=lights", cookies=admin_session)
+    assert resp.status_code == 200
+    data = resp.json()
+    entity_ids = {e["entity_id"] for e in data}
+    assert entity_ids == {"light.salon"}

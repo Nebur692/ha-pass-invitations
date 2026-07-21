@@ -1,4 +1,5 @@
 """Tests for database CRUD operations."""
+import json
 import time
 
 import pytest
@@ -286,3 +287,129 @@ async def test_cleanup_does_not_delete_expired_or_revoked_tokens(test_db):
     row = await db.get_token_by_id(revoked["id"])
     assert row is not None
     assert row["revoked"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Scheduling, notify, and binding (see migrations/versions/003_scheduling.py)
+# ---------------------------------------------------------------------------
+
+async def test_create_token_with_schedule_fields(test_db):
+    now = int(time.time())
+    token = await db.create_token(
+        label="Scheduled", slug="scheduled", entity_ids=["input_button.portal"],
+        expires_at=now + 3600, ip_allowlist=None,
+        starts_at=now + 100,
+        recurrence={"weekdays": [1, 3], "start": "09:00", "end": "13:00"},
+        notify_service="notify.mobile_app_test",
+        notify_lead_seconds=1800,
+    )
+    assert token["starts_at"] == now + 100
+    assert json.loads(token["recurrence"]) == {"weekdays": [1, 3], "start": "09:00", "end": "13:00"}
+    assert token["notify_service"] == "notify.mobile_app_test"
+    assert token["notify_lead_seconds"] == 1800
+    assert token["notify_sent"] == 0
+
+
+async def test_create_token_without_schedule_fields_defaults_none(test_db):
+    """Backward compatibility: no schedule fields = today's exact behavior."""
+    now = int(time.time())
+    token = await db.create_token(
+        label="Plain", slug="plain", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+    )
+    assert token["starts_at"] is None
+    assert token["recurrence"] is None
+    assert token["bound_secret"] is None
+
+
+async def test_update_token_schedule(test_db):
+    now = int(time.time())
+    token = await db.create_token(
+        label="Test", slug="upd-sched", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+    )
+    await db.update_token_schedule(
+        token["id"], starts_at=now + 500,
+        recurrence={"weekdays": [0], "start": "10:00", "end": "11:00"},
+    )
+    row = await db.get_token_by_id(token["id"])
+    assert row["starts_at"] == now + 500
+    assert json.loads(row["recurrence"]) == {"weekdays": [0], "start": "10:00", "end": "11:00"}
+
+
+async def test_mark_notify_sent(test_db):
+    now = int(time.time())
+    token = await db.create_token(
+        label="Test", slug="notify-sent", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None, notify_service="notify.x",
+    )
+    await db.mark_notify_sent(token["id"])
+    row = await db.get_token_by_id(token["id"])
+    assert row["notify_sent"] == 1
+
+
+async def test_list_tokens_pending_notify(test_db):
+    now = int(time.time())
+    due = await db.create_token(
+        label="Due", slug="due-notify", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+        starts_at=now + 100, notify_service="notify.x", notify_lead_seconds=200,
+    )
+    not_due = await db.create_token(
+        label="NotDue", slug="not-due-notify", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+        starts_at=now + 10000, notify_service="notify.x", notify_lead_seconds=200,
+    )
+    no_notify = await db.create_token(
+        label="NoNotify", slug="no-notify", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+        starts_at=now + 100,
+    )
+
+    pending = await db.list_tokens_pending_notify(now)
+    pending_ids = {r["id"] for r in pending}
+    assert due["id"] in pending_ids
+    assert not_due["id"] not in pending_ids
+    assert no_notify["id"] not in pending_ids
+
+    await db.mark_notify_sent(due["id"])
+    pending_after = await db.list_tokens_pending_notify(now)
+    assert due["id"] not in {r["id"] for r in pending_after}
+
+
+async def test_claim_token_binding(test_db):
+    now = int(time.time())
+    token = await db.create_token(
+        label="Test", slug="claim-me", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+    )
+    await db.claim_token_binding(token["id"], "secretA", now)
+    row = await db.get_token_by_id(token["id"])
+    assert row["bound_secret"] == "secretA"
+    assert row["bound_claimed_at"] == now
+
+
+async def test_claim_token_binding_race_safe(test_db):
+    """A second claim attempt must not overwrite an already-bound secret."""
+    now = int(time.time())
+    token = await db.create_token(
+        label="Test", slug="claim-race", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+    )
+    await db.claim_token_binding(token["id"], "secretA", now)
+    await db.claim_token_binding(token["id"], "secretB", now + 1)
+    row = await db.get_token_by_id(token["id"])
+    assert row["bound_secret"] == "secretA"
+
+
+async def test_unbind_token(test_db):
+    now = int(time.time())
+    token = await db.create_token(
+        label="Test", slug="unbind-me", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+    )
+    await db.claim_token_binding(token["id"], "secretA", now)
+    await db.unbind_token(token["id"])
+    row = await db.get_token_by_id(token["id"])
+    assert row["bound_secret"] is None
+    assert row["bound_claimed_at"] is None

@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -26,6 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 CLEANUP_INTERVAL_SECONDS = 300
+NOTIFY_LOOP_INTERVAL_SECONDS = 60
 
 
 @asynccontextmanager
@@ -59,14 +61,40 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Cleanup loop iteration failed")
 
+    async def _notify_loop():
+        """Automatically deliver the guest link via an HA notify.* service
+        once its scheduled lead time arrives (an automatic reminder-style invite,
+        see app.database.list_tokens_pending_notify)."""
+        while True:
+            await asyncio.sleep(NOTIFY_LOOP_INTERVAL_SECONDS)
+            try:
+                now = int(time.time())
+                for row in await db.list_tokens_pending_notify(now):
+                    service = row["notify_service"].split(".", 1)[1]
+                    link = f"{settings.guest_url}/g/{row['slug']}" if settings.guest_url else f"/g/{row['slug']}"
+                    try:
+                        await ha_client.call_service(
+                            "notify", service,
+                            {"message": f"{row['label']}: {link}"},
+                        )
+                    except Exception:
+                        logger.exception("Failed to send scheduled notify for token %s", row["id"])
+                        continue
+                    await db.mark_notify_sent(row["id"])
+            except Exception:
+                logger.exception("Notify loop iteration failed")
+
     # M-2: Add done_callback to detect silent cleanup task death
     cleanup_task = asyncio.create_task(_cleanup_loop())
     cleanup_task.add_done_callback(lambda t: logger.error("Cleanup task terminated: %s", t.exception()) if not t.cancelled() and t.exception() else None)
+    notify_task = asyncio.create_task(_notify_loop())
+    notify_task.add_done_callback(lambda t: logger.error("Notify task terminated: %s", t.exception()) if not t.cancelled() and t.exception() else None)
 
     yield
 
     # M-7: Shutdown with timeout
     cleanup_task.cancel()
+    notify_task.cancel()
     try:
         await asyncio.wait_for(ha_client.stop_ws_listener(), timeout=5)
     except asyncio.TimeoutError:
