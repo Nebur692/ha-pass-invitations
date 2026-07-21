@@ -1,8 +1,8 @@
-name: HAPass Scheduling
+name: HAPass Invitations
 version: "1.1.0"
-slug: ha-pass-scheduling
-description: Shareable guest links for controlling Home Assistant devices, with advance/recurring scheduling
-url: "https://github.com/Nebur692/ha-pass-scheduling"
+slug: ha-pass-invitations
+description: Shareable, schedulable guest links for Home Assistant — advance/recurring access windows, local-network-only commands, and single-device link binding
+url: "https://github.com/Nebur692/ha-pass-invitations"
 arch: [amd64, aarch64]
 startup: application
 boot: auto
@@ -37,4 +37,4 @@ schema:
   guest_url: "str?"
   timezone: str
   local_network_cidrs: "str?"
-image: "ghcr.io/nebur692/ha-pass-scheduling"
+image: "ghcr.io/nebur692/ha-pass-invitations"

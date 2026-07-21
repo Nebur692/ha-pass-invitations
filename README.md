@@ -1,4 +1,4 @@
-# HAPass — Scheduled Guest Access
+# HAPass Invitations
 
 🇬🇧 [English](#english) | 🇪🇸 [Español](#español)
 
@@ -59,7 +59,7 @@ additive restrictions and scheduling features, not a rewrite of the trust bounda
 1. Add this repository in **Settings → Add-ons → Add-on Store → ⋮ → Repositories**:
 
    ```
-   https://github.com/Nebur692/ha-pass-scheduling
+   https://github.com/Nebur692/ha-pass-invitations
    ```
 
 2. Find **HAPass** in the store and click **Install**.
@@ -73,13 +73,13 @@ port (`http://<your-ha-ip>:5880/g/{slug}`) so visitors don't need HA accounts.
 #### Docker Compose
 
 Pushing a `vX.Y.Z` tag to this repo triggers a GitHub Actions build that publishes to
-`ghcr.io/nebur692/ha-pass-scheduling`. Until a version has been tagged, build the image locally
+`ghcr.io/nebur692/ha-pass-invitations`. Until a version has been tagged, build the image locally
 from the `Dockerfile` instead of pulling a pre-built one.
 
 ```yaml
 services:
   ha-pass:
-    image: ghcr.io/nebur692/ha-pass-scheduling:latest
+    image: ghcr.io/nebur692/ha-pass-invitations:latest
     restart: unless-stopped
     ports:
       - 5880:5880
@@ -199,7 +199,7 @@ reescritura del límite de confianza.
    Repositorios**:
 
    ```
-   https://github.com/Nebur692/ha-pass-scheduling
+   https://github.com/Nebur692/ha-pass-invitations
    ```
 
 2. Busca **HAPass** en la tienda y pulsa **Instalar**.
@@ -215,13 +215,13 @@ sesión aparte. Los enlaces de invitado usan el puerto directo
 #### Docker Compose
 
 Al subir un tag `vX.Y.Z` a este repositorio se dispara una build de GitHub Actions que publica en
-`ghcr.io/nebur692/ha-pass-scheduling`. Hasta que exista una versión etiquetada, construye la
+`ghcr.io/nebur692/ha-pass-invitations`. Hasta que exista una versión etiquetada, construye la
 imagen en local desde el `Dockerfile` en vez de descargar una ya construida.
 
 ```yaml
 services:
   ha-pass:
-    image: ghcr.io/nebur692/ha-pass-scheduling:latest
+    image: ghcr.io/nebur692/ha-pass-invitations:latest
     restart: unless-stopped
     ports:
       - 5880:5880
