@@ -1,5 +1,5 @@
 name: HAPass Scheduling
-version: "1.0.0"
+version: "1.0.1"
 slug: ha-pass-scheduling
 description: Shareable guest links for controlling Home Assistant devices, with advance/recurring scheduling
 url: "https://github.com/Nebur692/ha-pass-scheduling"
