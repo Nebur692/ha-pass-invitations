@@ -178,33 +178,76 @@
         <p class="text-xs text-muted mt-1">{{ t('slug_hint') }}</p>
       </div>
       <div>
-        <label for="f-expiry" class="block text-xs font-mono uppercase tracking-wider text-muted mb-1.5">{{ t('expiry') }}</label>
-        <select id="f-expiry" data-action="toggle-custom-expiry" data-prefix="f"
-          class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary cursor-pointer">
-          <option value="3600">{{ t('opt_1_hour') }}</option>
-          <option value="43200">{{ t('opt_12_hours') }}</option>
-          <option value="86400" selected>{{ t('opt_1_day') }}</option>
-          <option value="259200">{{ t('opt_3_days') }}</option>
-          <option value="604800">{{ t('opt_7_days') }}</option>
-          <option value="2592000">{{ t('opt_30_days') }}</option>
-          <option value="7776000">{{ t('opt_90_days') }}</option>
-          <option value="31536000">{{ t('opt_1_year') }}</option>
-          <option value="4102444800">{{ t('opt_never_expires') }}</option>
-          <option value="custom">{{ t('opt_custom') }}</option>
-        </select>
-        <p id="f-never-warn" class="hidden text-xs text-amber-600 dark:text-amber-400 mt-1">{{ t('never_expires_warn') }}</p>
-        <div id="f-custom-expiry" class="hidden mt-2">
-          <input id="f-custom-datetime" type="datetime-local"
-            class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-          <p id="f-custom-error" class="hidden text-xs text-primary mt-1">{{ t('custom_date_future_error') }}</p>
+        <label class="block text-xs font-mono uppercase tracking-wider text-muted mb-1.5">{{ t('schedule_section_title') }}</label>
+        <div class="space-y-2">
+          <label class="flex items-start gap-2 p-2.5 rounded-xl border border-border-light dark:border-border-dark cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+            <input type="radio" name="f-timing-mode" id="f-timing-single-use" value="single_use" data-action="toggle-timing-mode" class="mt-0.5">
+            <span>
+              <span class="block text-sm font-display font-medium">{{ t('mode_single_use') }}</span>
+              <span class="block text-xs text-muted">{{ t('single_use_hint') }}</span>
+            </span>
+          </label>
+          <label class="flex items-start gap-2 p-2.5 rounded-xl border border-border-light dark:border-border-dark cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+            <input type="radio" name="f-timing-mode" id="f-timing-never-expires" value="never_expires" data-action="toggle-timing-mode" class="mt-0.5">
+            <span>
+              <span class="block text-sm font-display font-medium">{{ t('mode_never_expires') }}</span>
+              <span class="block text-xs text-muted">{{ t('never_expires_warn') }}</span>
+            </span>
+          </label>
+          <label class="flex items-start gap-2 p-2.5 rounded-xl border border-border-light dark:border-border-dark cursor-pointer has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+            <input type="radio" name="f-timing-mode" id="f-timing-period" value="period" data-action="toggle-timing-mode" class="mt-0.5" checked>
+            <span>
+              <span class="block text-sm font-display font-medium">{{ t('mode_period') }}</span>
+              <span class="block text-xs text-muted">{{ t('period_hint') }}</span>
+            </span>
+          </label>
         </div>
-      </div>
-      <div>
-        <label class="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-muted mb-1.5">
-          <input type="checkbox" id="f-single-use">
-          {{ t('single_use_checkbox') }}
-        </label>
-        <p class="text-xs text-muted">{{ t('single_use_hint') }}</p>
+        <div id="f-period-fields" class="space-y-3 mt-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label for="f-period-starts-at" class="block text-xs text-muted mb-1">{{ t('period_starts_at') }}</label>
+              <input id="f-period-starts-at" type="datetime-local"
+                class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+            </div>
+            <div>
+              <label for="f-period-ends-at" class="block text-xs text-muted mb-1">{{ t('period_ends_at') }}</label>
+              <input id="f-period-ends-at" type="datetime-local"
+                class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+            </div>
+          </div>
+          <p id="f-period-error" class="hidden text-xs text-primary"></p>
+          <div>
+            <label class="flex items-center gap-2 text-xs text-muted mb-1.5">
+              <input type="checkbox" id="f-advanced-enabled" data-action="toggle-advanced">
+              {{ t('advanced_period_toggle') }}
+            </label>
+            <div id="f-advanced-fields" class="hidden space-y-3 mt-2 pl-1 border-l-2 border-border-light dark:border-border-dark">
+              <div class="pl-3">
+                <label class="flex items-center gap-2 text-xs text-muted mb-1.5">
+                  <input type="checkbox" id="f-recurrence-enabled" data-action="toggle-recurrence">
+                  {{ t('repeat_weekly') }}
+                </label>
+                <div id="f-recurrence-fields" class="hidden space-y-2">
+                  <div class="flex flex-wrap gap-2" id="f-weekday-container"></div>
+                  <div class="flex gap-2">
+                    <input id="f-recurrence-start" type="time" value="09:00"
+                      class="flex-1 px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary">
+                    <input id="f-recurrence-end" type="time" value="13:00"
+                      class="flex-1 px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary">
+                  </div>
+                </div>
+              </div>
+              <div class="pl-3">
+                <label for="f-notify-service" class="block text-xs text-muted mb-1">{{ t('notify_via') }} <span class="font-mono">notify.*</span> <span class="text-muted/60">{{ t('optional') }}</span></label>
+                <input id="f-notify-service" type="text" placeholder="notify.mobile_app_14t"
+                  class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm font-mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+                <label for="f-notify-lead-hours" class="block text-xs text-muted mt-2 mb-1">{{ t('send_hours_before') }}</label>
+                <input id="f-notify-lead-hours" type="number" min="0" step="1" value="0"
+                  class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div>
         <label for="f-ip" class="block text-xs font-mono uppercase tracking-wider text-muted mb-1.5">{{ t('ip_allowlist') }}</label>
@@ -225,47 +268,6 @@
       <div>
         <label class="block text-xs font-mono uppercase tracking-wider text-muted mb-1.5">{{ t('entities') }}</label>
         <div id="create-picker"></div>
-      </div>
-      <div class="border-t border-border-light dark:border-border-dark pt-4">
-        <div class="flex items-center gap-2 mb-1.5">
-          <span aria-hidden="true" class="material-symbols-outlined text-base text-accent">event</span>
-          <span class="text-xs font-mono uppercase tracking-wider font-bold">{{ t('schedule_section_title') }}</span>
-        </div>
-        <label class="flex items-center gap-2 text-sm mb-1">
-          <input type="checkbox" id="f-schedule-enabled" data-action="toggle-schedule">
-          {{ t('schedule_checkbox') }}
-        </label>
-        <p class="text-xs text-muted mb-2">{{ t('schedule_hint') }}</p>
-        <div id="f-schedule-fields" class="hidden space-y-3 mt-2">
-          <div>
-            <label for="f-starts-at" class="block text-xs text-muted mb-1">{{ t('starts_at_label') }}</label>
-            <input id="f-starts-at" type="datetime-local"
-              class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-          </div>
-          <div>
-            <label class="flex items-center gap-2 text-xs text-muted mb-1.5">
-              <input type="checkbox" id="f-recurrence-enabled" data-action="toggle-recurrence">
-              {{ t('repeat_weekly') }}
-            </label>
-            <div id="f-recurrence-fields" class="hidden space-y-2">
-              <div class="flex flex-wrap gap-2" id="f-weekday-container"></div>
-              <div class="flex gap-2">
-                <input id="f-recurrence-start" type="time" value="09:00"
-                  class="flex-1 px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary">
-                <input id="f-recurrence-end" type="time" value="13:00"
-                  class="flex-1 px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary">
-              </div>
-            </div>
-          </div>
-          <div>
-            <label for="f-notify-service" class="block text-xs text-muted mb-1">{{ t('notify_via') }} <span class="font-mono">notify.*</span> <span class="text-muted/60">{{ t('optional') }}</span></label>
-            <input id="f-notify-service" type="text" placeholder="notify.mobile_app_14t"
-              class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm font-mono outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-            <label for="f-notify-lead-hours" class="block text-xs text-muted mt-2 mb-1">{{ t('send_hours_before') }}</label>
-            <input id="f-notify-lead-hours" type="number" min="0" step="1" value="0"
-              class="w-full px-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-          </div>
-        </div>
       </div>
     </div>
     <div id="create-error" role="alert" class="text-primary text-xs min-h-[18px] mt-2"></div>
@@ -869,23 +871,25 @@ function toLocalDatetimeValue(date) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
+function setTimingMode(mode) {
+  document.getElementById(`f-timing-${mode.replace('_', '-')}`).checked = true;
+  document.getElementById('f-period-fields').classList.toggle('hidden', mode !== 'period');
+}
+
 function openCreateModal(preset = {}) {
   createPicker = { selected: new Set(preset.entityIds || []), filter: 'all', search: '' };
   document.getElementById('create-modal-title').textContent = preset.title || t('create_modal_title');
   document.getElementById('f-label').value = preset.label || '';
   document.getElementById('f-slug').value = '';
   document.getElementById('f-ip').value = (preset.ipAllowlist || []).join(', ');
-  document.getElementById('f-expiry').value = preset.expiryValue || '86400';
   document.getElementById('f-mode').value = '';
   document.getElementById('create-error').textContent = '';
-  document.getElementById('f-custom-expiry').classList.add('hidden');
-  document.getElementById('f-never-warn').classList.add('hidden');
-  document.getElementById('f-custom-error').classList.add('hidden');
-  document.getElementById('f-custom-datetime').value = '';
-  document.getElementById('f-single-use').checked = preset.singleUse || false;
-  document.getElementById('f-schedule-enabled').checked = false;
-  document.getElementById('f-schedule-fields').classList.add('hidden');
-  document.getElementById('f-starts-at').value = toLocalDatetimeValue(new Date(Date.now() + 3600000));
+  document.getElementById('f-period-error').classList.add('hidden');
+  setTimingMode(preset.timingMode || 'period');
+  document.getElementById('f-period-starts-at').value = toLocalDatetimeValue(new Date(preset.periodStartsAt || Date.now()));
+  document.getElementById('f-period-ends-at').value = toLocalDatetimeValue(new Date(preset.periodEndsAt || (Date.now() + 86400000)));
+  document.getElementById('f-advanced-enabled').checked = false;
+  document.getElementById('f-advanced-fields').classList.add('hidden');
   document.getElementById('f-recurrence-enabled').checked = false;
   document.getElementById('f-recurrence-fields').classList.add('hidden');
   document.querySelectorAll('.f-weekday').forEach(cb => cb.checked = false);
@@ -893,7 +897,6 @@ function openCreateModal(preset = {}) {
   document.getElementById('f-recurrence-end').value = '13:00';
   document.getElementById('f-notify-service').value = '';
   document.getElementById('f-notify-lead-hours').value = '0';
-  toggleCustomExpiry('f');
   renderPicker('create-picker', createPicker);
   openModal('create-modal');
 }
@@ -902,29 +905,38 @@ function closeCreateModal() { closeModal('create-modal'); }
 async function submitCreate() {
   const label = document.getElementById('f-label').value.trim();
   const slug = document.getElementById('f-slug').value.trim() || null;
-  const expiresIn = getExpirySeconds('f');
   const ipRaw = document.getElementById('f-ip').value.trim();
   const ipList = ipRaw ? ipRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
   const errEl = document.getElementById('create-error');
+  const periodErrEl = document.getElementById('f-period-error');
+  periodErrEl.classList.add('hidden');
 
   if (!label) { errEl.textContent = t('err_label_required'); return; }
-  if (expiresIn === null) { errEl.textContent = t('err_invalid_expiry'); return; }
   if (createPicker.selected.size === 0) { errEl.textContent = t('err_select_entity'); return; }
+
+  const timingMode = document.querySelector('input[name="f-timing-mode"]:checked').value;
 
   const body = {
     label, slug,
     entity_ids: [...createPicker.selected],
-    expires_in_seconds: expiresIn,
     ip_allowlist: ipList,
-    max_uses: document.getElementById('f-single-use').checked ? 1 : null,
+    max_uses: timingMode === 'single_use' ? 1 : null,
+    expires_in_seconds: NEVER_EXPIRES,
   };
 
-  if (document.getElementById('f-schedule-enabled').checked) {
-    const startsAtVal = document.getElementById('f-starts-at').value;
-    if (!startsAtVal) { errEl.textContent = t('err_choose_datetime'); return; }
-    body.starts_at = Math.floor(new Date(startsAtVal).getTime() / 1000);
+  if (timingMode === 'period') {
+    const startsAtVal = document.getElementById('f-period-starts-at').value;
+    const endsAtVal = document.getElementById('f-period-ends-at').value;
+    if (!startsAtVal || !endsAtVal) { periodErrEl.textContent = t('err_period_dates_required'); periodErrEl.classList.remove('hidden'); return; }
+    const startsAt = Math.floor(new Date(startsAtVal).getTime() / 1000);
+    const endsAt = Math.floor(new Date(endsAtVal).getTime() / 1000);
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (endsAt <= startsAt) { periodErrEl.textContent = t('err_period_end_after_start'); periodErrEl.classList.remove('hidden'); return; }
+    if (endsAt <= nowSec) { periodErrEl.textContent = t('err_period_end_in_past'); periodErrEl.classList.remove('hidden'); return; }
+    body.starts_at = startsAt;
+    body.expires_in_seconds = Math.max(1, endsAt - nowSec);
 
-    if (document.getElementById('f-recurrence-enabled').checked) {
+    if (document.getElementById('f-advanced-enabled').checked && document.getElementById('f-recurrence-enabled').checked) {
       const weekdays = [...document.querySelectorAll('.f-weekday:checked')].map(cb => parseInt(cb.value, 10));
       const start = document.getElementById('f-recurrence-start').value;
       const end = document.getElementById('f-recurrence-end').value;
@@ -933,10 +945,12 @@ async function submitCreate() {
       body.recurrence = { weekdays, start, end };
     }
 
-    const notifyService = document.getElementById('f-notify-service').value.trim();
-    if (notifyService) {
-      body.notify_service = notifyService;
-      body.notify_lead_seconds = Math.max(0, parseInt(document.getElementById('f-notify-lead-hours').value, 10) || 0) * 3600;
+    if (document.getElementById('f-advanced-enabled').checked) {
+      const notifyService = document.getElementById('f-notify-service').value.trim();
+      if (notifyService) {
+        body.notify_service = notifyService;
+        body.notify_lead_seconds = Math.max(0, parseInt(document.getElementById('f-notify-lead-hours').value, 10) || 0) * 3600;
+      }
     }
   }
 
@@ -964,13 +978,15 @@ async function duplicateToken(tokenId) {
   const r = await fetch(`${BASE}/admin/tokens/${tokenId}`);
   if (!r.ok) { showToast(t('toast_failed_load_token'), 'error'); return; }
   const token = await r.json();
+  const timingMode = token.max_uses != null ? 'single_use' : token.expires_at >= NEVER_EXPIRES ? 'never_expires' : 'period';
   openCreateModal({
     title: t('duplicate_modal_title'),
     label: `${token.label} copy`,
     entityIds: token.entity_ids || [],
     ipAllowlist: token.ip_allowlist || [],
-    expiryValue: token.expires_at === NEVER_EXPIRES ? String(NEVER_EXPIRES) : '86400',
-    singleUse: token.max_uses != null,
+    timingMode,
+    periodStartsAt: token.starts_at ? token.starts_at * 1000 : Date.now(),
+    periodEndsAt: timingMode === 'period' ? token.expires_at * 1000 : Date.now() + 86400000,
   });
 }
 
@@ -1402,11 +1418,14 @@ document.addEventListener('change', e => {
   if (e.target.dataset.action === 'apply-mode-suggestion') {
     applyModeSuggestion(e.target.value);
   }
-  if (e.target.dataset.action === 'toggle-schedule') {
-    document.getElementById('f-schedule-fields').classList.toggle('hidden', !e.target.checked);
-  }
   if (e.target.dataset.action === 'toggle-recurrence') {
     document.getElementById('f-recurrence-fields').classList.toggle('hidden', !e.target.checked);
+  }
+  if (e.target.dataset.action === 'toggle-timing-mode') {
+    document.getElementById('f-period-fields').classList.toggle('hidden', e.target.value !== 'period');
+  }
+  if (e.target.dataset.action === 'toggle-advanced') {
+    document.getElementById('f-advanced-fields').classList.toggle('hidden', !e.target.checked);
   }
 });
 
