@@ -7,7 +7,7 @@
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/Nebur692/ha-pass-invitations/issues</Support>
+  <Support>https://forums.unraid.net/topic/200003-support-hapass-invitations-nebur692/</Support>
   <Project>https://github.com/Nebur692/ha-pass-invitations</Project>
   <Overview>Shareable, schedulable guest links for controlling specific Home Assistant entities - lights, locks, thermostats, fans, and more. Guests get a mobile-friendly PWA, no HA account or app install needed.&#13;
 &#13;
