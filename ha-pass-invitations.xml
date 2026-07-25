@@ -22,8 +22,8 @@ Requires an existing Home Assistant instance reachable from this container and a
   <PostArgs></PostArgs>
   <CPUset></CPUset>
   <DateInstalled></DateInstalled>
-  <DonateText></DonateText>
-  <DonateLink></DonateLink>
+  <DonateText>Ko-fi</DonateText>
+  <DonateLink>https://ko-fi.com/nebur69265723</DonateLink>
   <Requires></Requires>
   <Config Name="WebUI Port" Target="5880" Default="5880" Mode="tcp" Description="Port for the admin dashboard and guest links" Type="Port" Display="always" Required="true" Mask="false">5880</Config>
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/ha-pass-invitations" Mode="rw" Description="SQLite database (tokens, access log)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ha-pass-invitations</Config>
