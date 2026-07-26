@@ -1,8 +1,16 @@
+<div align="center">
+
 # HAPass Invitations
 
-🇬🇧 [English](#english) | 🇪🇸 [Español](#español)
+*Self-hosted, schedulable guest links for Home Assistant — no cloud, no third-party app*
 
+![Release](https://img.shields.io/github/v/release/Nebur692/ha-pass-invitations?label=release&color=blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/nebur69265723)
+
+🇬🇧 [English](#english) · 🇪🇸 [Español](#español)
+
+</div>
 
 ---
 
@@ -17,7 +25,7 @@ This fork adds **advance/recurring scheduling** and a few related features aimed
 what a smart-intercom "guest invitation" feature typically offers (invite someone for a specific
 future date/time, or a recurring weekly window), while staying self-hosted and auditable.
 
-### What's new in this fork
+### ✨ What's new in this fork
 
 - **Advance scheduling** — create a link today that only becomes active at a future date/time
   (`starts_at`), instead of always starting immediately.
@@ -61,7 +69,7 @@ None of the above touches the original security model: the same entity/service a
 forbidden-key stripping, rate limiting, and IP allowlisting from upstream still apply — these are
 additive restrictions and scheduling features, not a rewrite of the trust boundary.
 
-### Installation
+### 📦 Installation
 
 #### Home Assistant Add-on
 
@@ -132,7 +140,7 @@ docker compose up -d
 > Assistant (**Profile → Security → Long-Lived Access Tokens**). The add-on handles this
 > automatically.
 
-### Configuration
+### ⚙️ Configuration
 
 In addition to every option from upstream (admin credentials, app name, contact message, branding,
 log retention, guest URL — see [DOCS.md](DOCS.md)), this fork adds:
@@ -146,7 +154,7 @@ Per-token scheduling (`starts_at`, `recurrence`, `notify_service`, `notify_lead_
 from the admin dashboard's Create Token form — there's nothing to configure at the add-on level for
 those.
 
-### Supported Entity Types
+### 🧭 Supported Entity Types
 
 Same as upstream, plus:
 
@@ -158,13 +166,18 @@ Same as upstream, plus:
 `lock`, `cover`, `button`, and `input_button` are also the domains gated by
 `LOCAL_NETWORK_CIDRS` when it's set.
 
-### Disclaimer
+### 💙 Support
+
+None of this would be possible without the community's support. If this project has been useful to you,
+consider [supporting it on Ko-fi](https://ko-fi.com/nebur69265723) — every bit helps keep it maintained.
+
+### ⚠️ Disclaimer
 
 Not affiliated with, endorsed by, or associated with Home Assistant or Nabu Casa Inc. "Home
 Assistant" is a trademark of Nabu Casa Inc. Not affiliated with the original HAPass author beyond
 this being an open, credited fork under the same MIT license.
 
-### License
+### 📜 License
 
 [MIT](LICENSE) — original copyright retained, fork changes are contributed under the same terms.
 
@@ -182,7 +195,7 @@ pensadas para sustituir lo que suele ofrecer la función de "invitación de invi
 telefonillo inteligente (invitar a alguien para una fecha/hora futura concreta, o una ventana
 semanal recurrente), manteniéndolo autoalojado y auditable.
 
-### Novedades de este fork
+### ✨ Novedades de este fork
 
 - **Programación por adelantado** — crear hoy un enlace que solo se activa en una fecha/hora
   futura (`starts_at`), en vez de activarse siempre de inmediato.
@@ -231,7 +244,7 @@ servicio, el filtrado de claves prohibidas, el rate limiting y la lista blanca d
 original siguen aplicando — son restricciones y funciones de programación añadidas, no una
 reescritura del límite de confianza.
 
-### Instalación
+### 📦 Instalación
 
 #### Complemento de Home Assistant
 
@@ -306,7 +319,7 @@ docker compose up -d
 > Assistant (**Perfil → Seguridad → Tokens de acceso de larga duración**). El complemento lo
 > gestiona automáticamente.
 
-### Configuración
+### ⚙️ Configuración
 
 Además de todas las opciones ya existentes (credenciales de admin, nombre de la app, mensaje de
 contacto, marca, retención de logs, URL de invitado — ver [DOCS.md](DOCS.md)), este fork añade:
@@ -320,7 +333,7 @@ La programación por token (`starts_at`, `recurrence`, `notify_service`, `notify
 configura desde el formulario de creación de token del panel de administración — no hay nada que
 configurar a nivel de complemento para eso.
 
-### Tipos de entidad soportados
+### 🧭 Tipos de entidad soportados
 
 Igual que la versión original, más:
 
@@ -332,13 +345,18 @@ Igual que la versión original, más:
 `lock`, `cover`, `button` e `input_button` son también los dominios afectados por
 `LOCAL_NETWORK_CIDRS` cuando está configurado.
 
-### Aviso legal
+### 💙 Apoya el proyecto
+
+Sin el apoyo de la comunidad estos proyectos no serían posibles. Si te ha resultado útil, puedes
+[apoyarlo en Ko-fi](https://ko-fi.com/nebur69265723) — cualquier aportación ayuda a seguir manteniéndolo.
+
+### ⚠️ Aviso legal
 
 No afiliado, respaldado ni asociado con Home Assistant ni Nabu Casa Inc. "Home Assistant" es una
 marca registrada de Nabu Casa Inc. No afiliado con el autor original de HAPass más allá de ser un
 fork abierto y con crédito bajo la misma licencia MIT.
 
-### Licencia
+### 📜 Licencia
 
 [MIT](LICENSE) — se mantiene el copyright original; los cambios del fork se aportan bajo los
 mismos términos.
