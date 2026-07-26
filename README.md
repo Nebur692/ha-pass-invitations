@@ -6,6 +6,7 @@
 
 ![Release](https://img.shields.io/github/v/release/Nebur692/ha-pass-invitations?label=release&color=blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-30363D?logo=githubsponsors&logoColor=EA4AAA)](https://github.com/sponsors/Nebur692)
 [![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/nebur69265723)
 [![PayPal](https://img.shields.io/badge/PayPal-donate-00457C?logo=paypal&logoColor=white)](https://paypal.me/0SkillS)
 
@@ -170,7 +171,7 @@ Same as upstream, plus:
 ### 💙 Support
 
 None of this would be possible without the community's support. If this project has been useful to you,
-consider supporting it on [Ko-fi](https://ko-fi.com/nebur69265723) or [PayPal](https://paypal.me/0SkillS) — every bit helps keep it maintained.
+consider supporting it via [GitHub Sponsors](https://github.com/sponsors/Nebur692), [Ko-fi](https://ko-fi.com/nebur69265723) or [PayPal](https://paypal.me/0SkillS) — every bit helps keep it maintained.
 
 ### ⚠️ Disclaimer
 
@@ -348,7 +349,7 @@ Igual que la versión original, más:
 
 ### 💙 Apoya el proyecto
 
-Sin el apoyo de la comunidad estos proyectos no serían posibles. Si te ha resultado útil, puedes apoyarlo en [Ko-fi](https://ko-fi.com/nebur69265723) o [PayPal](https://paypal.me/0SkillS) — cualquier aportación ayuda a seguir manteniéndolo.
+Sin el apoyo de la comunidad estos proyectos no serían posibles. Si te ha resultado útil, puedes apoyarlo vía [GitHub Sponsors](https://github.com/sponsors/Nebur692), [Ko-fi](https://ko-fi.com/nebur69265723) o [PayPal](https://paypal.me/0SkillS) — cualquier aportación ayuda a seguir manteniéndolo.
 
 ### ⚠️ Aviso legal
 
