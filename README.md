@@ -162,9 +162,9 @@ log retention, guest URL — see [DOCS.md](DOCS.md)), this fork adds:
 | `TIMEZONE` | IANA timezone used to evaluate recurring weekly windows | `UTC` |
 | `LOCAL_NETWORK_CIDRS` | JSON array of CIDRs considered "home network" for access-domain commands (e.g. `["192.168.0.0/16"]`). Empty/unset = no restriction. | `[]` |
 
-Per-token scheduling (`starts_at`, `recurrence`, `notify_service`, `notify_lead_seconds`) is set
-from the admin dashboard's Create Token form — there's nothing to configure at the add-on level for
-those.
+Per-token scheduling and access rules (`starts_at`, `recurrence`, `ip_allowlist`,
+`country_allowlist`) are set from the admin dashboard's Create Token form — there's nothing to
+configure at the add-on level for those.
 
 ### 🧭 Supported Entity Types
 
@@ -350,9 +350,9 @@ contacto, marca, retención de logs, URL de invitado — ver [DOCS.md](DOCS.md))
 | `TIMEZONE` | Zona horaria IANA usada para evaluar las ventanas semanales recurrentes | `UTC` |
 | `LOCAL_NETWORK_CIDRS` | Array JSON de CIDRs considerados "red de casa" para los comandos de dominios de acceso (p.ej. `["192.168.0.0/16"]`). Vacío/sin definir = sin restricción. | `[]` |
 
-La programación por token (`starts_at`, `recurrence`, `notify_service`, `notify_lead_seconds`) se
-configura desde el formulario de creación de token del panel de administración — no hay nada que
-configurar a nivel de complemento para eso.
+La programación y las reglas de acceso por token (`starts_at`, `recurrence`, `ip_allowlist`,
+`country_allowlist`) se configuran desde el formulario de creación de token del panel de
+administración — no hay nada que configurar a nivel de complemento para eso.
 
 ### 🧭 Tipos de entidad soportados
 
