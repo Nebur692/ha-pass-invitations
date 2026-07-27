@@ -33,8 +33,6 @@ future date/time, or a recurring weekly window), while staying self-hosted and a
   (`starts_at`), instead of always starting immediately.
 - **Recurring weekly windows** — restrict a token to specific weekdays and a daily time range
   (e.g. every Tue/Thu 09:00–13:00), on top of the absolute expiry.
-- **Automatic delivery** — optionally have HAPass send the guest link itself via any Home
-  Assistant `notify.*` service, a configurable number of hours before it becomes active.
 - **"First use" event** — a distinct `first_use` activity (alongside the existing `page_load`/
   `command` events) fires exactly once, the first time a link is actually opened — useful for a
   "your guest has arrived" notification.
@@ -52,7 +50,15 @@ future date/time, or a recurring weekly window), while staying self-hosted and a
   actually triggering the action is refused unless the request comes from a configured home-network
   CIDR range. **Honest limitation:** this checks the request's source IP, i.e. the guest's device
   has to actually be joined to that network at the moment they tap the button — it is not GPS-based
-  proximity detection.
+  proximity detection. This is a fixed, whole-add-on setting (`LOCAL_NETWORK_CIDRS`), not something
+  chosen per token.
+- **Country allowlist** — per token, optionally restrict the *entire* link (viewing included, not
+  just commands) to visitors whose public IP is located in one or more chosen countries (ISO codes,
+  e.g. `ES, PT`). Resolved once at creation time against the free
+  [ipdeny.com](https://www.ipdeny.com/) country IP blocks and enforced the same way as the
+  network-CIDR check above. **Different guarantee than the local-network check**: this only narrows
+  down *which country* a connection comes from, not whether the guest is actually on the home
+  Wi-Fi — the two are independent and can both apply to the same token.
 - **Single-device link binding** — the first browser/device to open a guest link claims it (a
   signed, `HttpOnly`/`SameSite=Strict` cookie scoped to that one link); any other device that opens
   the same link afterwards is refused, so a guest can't casually forward the link onward. An
@@ -61,11 +67,15 @@ future date/time, or a recurring weekly window), while staying self-hosted and a
   guest's first action (opening a door, pressing a button...), on top of (or instead of) a normal
   expiry. Complements the pre-existing "Never expires" option for the opposite case — a permanent
   link, revoked by hand.
-- **Bilingual English/Spanish UI** — both the admin dashboard and the guest PWA are fully
-  translated. The guest PWA always auto-detects from the guest's own browser language. The admin
-  dashboard also auto-detects by default, but can be pinned to a specific language from its
-  Profile menu regardless of the browser — useful if the admin's browser is in a language they
-  don't want the dashboard rendered in.
+- **Admin dashboard: bilingual English/Spanish.** Auto-detects by default, but can be pinned to a
+  specific language from its Profile menu regardless of the browser — useful if the admin's browser
+  is in a language they don't want the dashboard rendered in.
+- **Guest PWA: all 24 official languages of the European Union.** A guest link can end up in
+  anyone's hands, so the guest-facing page (Bulgarian, Croatian, Czech, Danish, Dutch, English,
+  Estonian, Finnish, French, German, Greek, Hungarian, Irish, Italian, Latvian, Lithuanian, Maltese,
+  Polish, Portuguese, Romanian, Slovak, Slovenian, Spanish, Swedish) always auto-detects from the
+  guest's own browser language — no override, since a guest link isn't "owned" by anyone who'd have
+  a profile to set one.
 
 None of the above touches the original security model: the same entity/service allowlist,
 forbidden-key stripping, rate limiting, and IP allowlisting from upstream still apply — these are
@@ -204,8 +214,6 @@ semanal recurrente), manteniéndolo autoalojado y auditable.
 - **Ventanas semanales recurrentes** — restringir un token a días concretos de la semana y una
   franja horaria diaria (p.ej. todos los martes/jueves 09:00–13:00), además de la caducidad
   absoluta.
-- **Envío automático** — opcionalmente, que HAPass envíe el propio enlace por cualquier servicio
-  `notify.*` de Home Assistant, con una antelación configurable en horas antes de que se active.
 - **Evento de "primer uso"** — una actividad `first_use` distinta (junto a las ya existentes
   `page_load`/`command`) se dispara una única vez, la primera vez que el enlace se abre de
   verdad — útil para un aviso de "tu invitado ha llegado".
@@ -224,7 +232,15 @@ semanal recurrente), manteniéndolo autoalojado y auditable.
   cualquier sitio, pero la acción en sí se rechaza si la petición no viene de un rango CIDR
   configurado como "red de casa". **Limitación honesta:** esto comprueba la IP de origen de la
   petición, es decir, el dispositivo del invitado debe estar realmente unido a esa red en el
-  momento de pulsar — no es detección de proximidad por GPS.
+  momento de pulsar — no es detección de proximidad por GPS. Es un ajuste fijo de todo el
+  complemento (`LOCAL_NETWORK_CIDRS`), no algo que se elija por token.
+- **Lista blanca de países** — por token, restringe opcionalmente **todo** el enlace (incluida su
+  visualización, no solo los comandos) a visitantes cuya IP pública esté en uno o varios países
+  elegidos (códigos ISO, p.ej. `ES, PT`). Se resuelve una sola vez al crear el token contra los
+  bloques de IP por país gratuitos de [ipdeny.com](https://www.ipdeny.com/), y se aplica igual que
+  la comprobación de red local de arriba. **Garantía distinta a la de red local:** esto solo acota
+  de qué país viene la conexión, no si el invitado está de verdad en el WiFi de casa — son
+  independientes y pueden aplicarse ambas al mismo token.
 - **Vinculación del enlace a un solo dispositivo** — el primer navegador/dispositivo que abre un
   enlace de invitado lo reclama (una cookie firmada, `HttpOnly`/`SameSite=Strict`, acotada a ese
   enlace concreto); cualquier otro dispositivo que abra después el mismo enlace queda rechazado,
@@ -234,12 +250,15 @@ semanal recurrente), manteniéndolo autoalojado y auditable.
   funcionar tras la primera acción del invitado (abrir una puerta, pulsar un botón...), además de
   (o en vez de) una caducidad normal. Complementa la opción ya existente "No caduca nunca" para el
   caso contrario — un enlace permanente, revocado a mano.
-- **Interfaz bilingüe español/inglés** — tanto el panel de administración como la PWA del invitado
-  están completamente traducidos. La PWA del invitado siempre detecta automáticamente el idioma
-  del navegador del invitado. El panel de administración también lo detecta automáticamente por
-  defecto, pero se puede fijar a un idioma concreto desde su menú de Perfil sin depender del
-  navegador — útil si el navegador del administrador está en un idioma en el que no quiere ver el
-  panel.
+- **Panel de administración: bilingüe español/inglés.** Detecta automáticamente por defecto, pero
+  se puede fijar a un idioma concreto desde su menú de Perfil sin depender del navegador — útil si
+  el navegador del administrador está en un idioma en el que no quiere ver el panel.
+- **PWA del invitado: los 24 idiomas oficiales de la Unión Europea.** Un enlace de invitado puede
+  acabar en manos de cualquiera, así que la página de cara al invitado (búlgaro, croata, checo,
+  danés, neerlandés, inglés, estonio, finés, francés, alemán, griego, húngaro, irlandés, italiano,
+  letón, lituano, maltés, polaco, portugués, rumano, eslovaco, esloveno, español, sueco) siempre
+  detecta automáticamente el idioma del navegador del invitado — sin opción manual, ya que un
+  enlace de invitado no tiene "dueño" con un perfil donde fijar uno.
 
 Nada de lo anterior toca el modelo de seguridad original: la misma lista blanca de entidad/
 servicio, el filtrado de claves prohibidas, el rate limiting y la lista blanca de IP de la versión

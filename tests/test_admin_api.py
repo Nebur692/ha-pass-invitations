@@ -301,6 +301,42 @@ async def test_get_token_detail_includes_ip_allowlist(client, admin_session, tes
     assert resp.json()["ip_allowlist"] == ["192.168.1.0/24"]
 
 
+async def test_create_token_with_country_allowlist_resolves_to_cidrs(
+    client, admin_session, mock_ha_client, mock_geoip
+):
+    """country_allowlist is resolved to CIDRs (via app.geoip) and both are
+    persisted — the raw country codes for display, the CIDRs for enforcement."""
+    resp = await client.post(
+        "/admin/tokens",
+        json={
+            "label": "From Spain or Portugal",
+            "entity_ids": ["light.a"],
+            "expires_in_seconds": 3600,
+            "country_allowlist": ["es", "PT"],
+        },
+        cookies=admin_session,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["country_allowlist"] == ["es", "PT"]
+    assert data["ip_allowlist"] == ["203.0.0.0/24", "203.0.1.0/24"]
+
+
+async def test_create_token_ip_and_country_allowlist_rejected(client, admin_session, mock_ha_client):
+    resp = await client.post(
+        "/admin/tokens",
+        json={
+            "label": "Conflicting",
+            "entity_ids": ["light.a"],
+            "expires_in_seconds": 3600,
+            "ip_allowlist": ["192.168.1.0/24"],
+            "country_allowlist": ["ES"],
+        },
+        cookies=admin_session,
+    )
+    assert resp.status_code == 422
+
+
 async def test_get_nonexistent_token_404(client, admin_session, mock_ha_client):
     resp = await client.get(
         "/admin/tokens/nonexistent-id", cookies=admin_session
@@ -549,8 +585,6 @@ async def test_create_token_with_schedule_persists(client, admin_session, mock_h
             "expires_in_seconds": 30 * 86400,
             "starts_at": now + 3600,
             "recurrence": {"weekdays": [1, 3], "start": "09:00", "end": "13:00"},
-            "notify_service": "notify.mobile_app_14t",
-            "notify_lead_seconds": 7200,
         },
         cookies=admin_session,
     )
@@ -558,8 +592,6 @@ async def test_create_token_with_schedule_persists(client, admin_session, mock_h
     data = resp.json()
     assert data["starts_at"] == now + 3600
     assert data["recurrence"] == {"weekdays": [1, 3], "start": "09:00", "end": "13:00"}
-    assert data["notify_service"] == "notify.mobile_app_14t"
-    assert data["notify_lead_seconds"] == 7200
 
     row = await db.get_token_by_id(data["id"])
     assert row["starts_at"] == now + 3600

@@ -207,31 +207,22 @@ class TestTokenCreateRequestScheduling:
         t = TokenCreateRequest(label="Guest", entity_ids=["light.a"], expires_in_seconds=3600)
         assert t.starts_at is None
         assert t.recurrence is None
-        assert t.notify_service is None
 
     def test_valid_with_schedule(self):
         t = TokenCreateRequest(
             label="Guest", entity_ids=["input_button.portal"], expires_in_seconds=3600,
             starts_at=1000,
             recurrence={"weekdays": [1, 3], "start": "09:00", "end": "13:00"},
-            notify_service="notify.mobile_app_test",
-            notify_lead_seconds=3600,
         )
         assert t.starts_at == 1000
         assert t.recurrence.weekdays == [1, 3]
 
-    def test_notify_lead_without_notify_service_rejected(self):
+    def test_ip_and_country_allowlist_mutually_exclusive(self):
         with pytest.raises(ValidationError):
             TokenCreateRequest(
                 label="Guest", entity_ids=["light.a"], expires_in_seconds=3600,
-                notify_lead_seconds=3600,
-            )
-
-    def test_invalid_notify_service_format_rejected(self):
-        with pytest.raises(ValidationError):
-            TokenCreateRequest(
-                label="Guest", entity_ids=["light.a"], expires_in_seconds=3600,
-                notify_service="not-a-notify-service",
+                ip_allowlist=["192.168.1.0/24"],
+                country_allowlist=["ES"],
             )
 
 

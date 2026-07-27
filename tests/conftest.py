@@ -73,6 +73,17 @@ def mock_ha_client():
         yield mocks
 
 
+@pytest.fixture
+def mock_geoip():
+    """Patch country-to-CIDR resolution (app.geoip) so tests never hit the
+    real ipdeny.com network — returns deterministic fake ranges per code."""
+    async def _fake_resolve(country_codes):
+        return [f"203.0.{i}.0/24" for i, _ in enumerate(country_codes)]
+
+    with patch("app.routers.admin.geoip.resolve_countries_to_cidrs", AsyncMock(side_effect=_fake_resolve)):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _reset_login_limiter():
     """Reset the admin login rate limiter between tests to prevent cross-test pollution.

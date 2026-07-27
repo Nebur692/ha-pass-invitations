@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from app import database as db
 from app.auth import INGRESS_SENTINEL, SESSION_COOKIE, require_admin, verify_password
 from app.config import settings
+from app import geoip
 from app import ha_client
 from app import i18n
 from app.models import (
@@ -103,7 +104,7 @@ async def set_admin_language(
 ) -> dict:
     if body.language == "auto":
         response.delete_cookie(i18n.ADMIN_LANG_COOKIE)
-        resolved = i18n.detect_lang(request.headers.get("accept-language"))
+        resolved = i18n.detect_lang(request.headers.get("accept-language"), i18n.ADMIN_SUPPORTED_LANGS)
     else:
         forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
         is_https = request.url.scheme == "https" or forwarded_proto == "https"
@@ -126,6 +127,8 @@ async def set_admin_language(
 def _row_to_response(row: Any, entity_ids: list[str] | None = None) -> dict:
     ip_raw = row["ip_allowlist"]
     ip_list = json.loads(ip_raw) if ip_raw else None
+    country_raw = row["country_allowlist"] if "country_allowlist" in row.keys() else None
+    country_list = json.loads(country_raw) if country_raw else None
     recurrence_raw = row["recurrence"] if "recurrence" in row.keys() else None
     recurrence = json.loads(recurrence_raw) if recurrence_raw else None
     if entity_ids is not None:
@@ -143,12 +146,11 @@ def _row_to_response(row: Any, entity_ids: list[str] | None = None) -> dict:
         "revoked": bool(row["revoked"]),
         "last_accessed": row["last_accessed"],
         "ip_allowlist": ip_list,
+        "country_allowlist": country_list,
         "entity_count": count,
         "entity_ids": entity_ids,
         "starts_at": row["starts_at"] if "starts_at" in row.keys() else None,
         "recurrence": recurrence,
-        "notify_service": row["notify_service"] if "notify_service" in row.keys() else None,
-        "notify_lead_seconds": row["notify_lead_seconds"] if "notify_lead_seconds" in row.keys() else None,
         "bound_claimed_at": row["bound_claimed_at"] if "bound_claimed_at" in row.keys() else None,
         "max_uses": row["max_uses"] if "max_uses" in row.keys() else None,
         "use_count": row["use_count"] if "use_count" in row.keys() else 0,
@@ -187,7 +189,7 @@ async def create_token(
     request: Request,
     _: str = Depends(require_admin),
 ) -> dict:
-    # Validate IP CIDR list if provided
+    # Validate IP CIDR list if provided directly
     if body.ip_allowlist:
         for cidr in body.ip_allowlist:
             try:
@@ -197,6 +199,19 @@ async def create_token(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=f"Invalid CIDR: {cidr}",
                 )
+
+    # Country allowlist: resolve to the actual CIDRs enforced by guest.py.
+    # country_allowlist itself is stored too, purely so the dashboard can
+    # show "Spain, Portugal" instead of the few thousand resolved CIDRs.
+    resolved_ip_allowlist = body.ip_allowlist
+    if body.country_allowlist:
+        try:
+            resolved_ip_allowlist = await geoip.resolve_countries_to_cidrs(body.country_allowlist)
+        except geoip.CountryResolutionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            )
 
     slug = body.slug or secrets.token_hex(16)
     if body.expires_in_seconds == NEVER_EXPIRES_SECONDS:
@@ -223,11 +238,10 @@ async def create_token(
         slug=slug,
         entity_ids=body.entity_ids,
         expires_at=expires_at,
-        ip_allowlist=body.ip_allowlist,
+        ip_allowlist=resolved_ip_allowlist,
+        country_allowlist=body.country_allowlist,
         starts_at=body.starts_at,
         recurrence=body.recurrence.model_dump() if body.recurrence else None,
-        notify_service=body.notify_service,
-        notify_lead_seconds=body.notify_lead_seconds,
         max_uses=body.max_uses,
     )
     entity_ids = await db.get_token_entities(row["id"])

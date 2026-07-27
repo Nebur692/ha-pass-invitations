@@ -83,14 +83,16 @@ class TokenCreateRequest(BaseModel):
     slug: str | None = Field(default=None, pattern=r"^[a-z0-9_-]{1,64}$")
     entity_ids: list[str] = Field(..., min_length=1)
     expires_in_seconds: int = Field(..., gt=0)
+    # Whole-link access check. Admin picks countries; the router resolves
+    # them into the actual CIDRs stored here — see app/geoip.py. Passing
+    # ip_allowlist directly is still accepted (e.g. for API/scripted use)
+    # for anyone who wants to hand-write CIDRs instead of picking a country.
     ip_allowlist: list[str] | None = None
+    country_allowlist: list[str] | None = None
     # Advance/recurring scheduling — all optional, None preserves today's
     # "active immediately" behavior.
     starts_at: int | None = Field(default=None, gt=0)
     recurrence: RecurrenceSchedule | None = None
-    # Automatic delivery of the guest link via an HA notify.* service.
-    notify_service: str | None = Field(default=None, pattern=r"^notify\.[a-z0-9_]+$")
-    notify_lead_seconds: int | None = Field(default=None, ge=0)
     # Single/limited-use: None means unlimited (today's behavior). When set,
     # the link stops working once use_count reaches max_uses — see
     # app.routers.guest.TokenState.USED_UP.
@@ -101,8 +103,8 @@ class TokenCreateRequest(BaseModel):
         # starts_at vs. the resulting absolute expires_at needs "now", which
         # this model doesn't have (expires_in_seconds is relative) — that
         # comparison is done in the admin router instead.
-        if self.notify_lead_seconds is not None and self.notify_service is None:
-            raise ValueError("notify_lead_seconds requires notify_service")
+        if self.ip_allowlist and self.country_allowlist:
+            raise ValueError("ip_allowlist and country_allowlist are mutually exclusive")
         return self
 
 
@@ -134,12 +136,11 @@ class TokenResponse(BaseModel):
     revoked: bool
     last_accessed: int | None
     ip_allowlist: list[str] | None
+    country_allowlist: list[str] | None = None
     entity_count: int
     entity_ids: list[str] | None = None
     starts_at: int | None = None
     recurrence: dict | None = None
-    notify_service: str | None = None
-    notify_lead_seconds: int | None = None
     bound_claimed_at: int | None = None
     max_uses: int | None = None
     use_count: int = 0
