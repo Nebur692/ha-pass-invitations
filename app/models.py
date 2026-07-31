@@ -38,12 +38,38 @@ LOCAL_ONLY_DOMAINS: set[str] = {"lock", "button", "input_button", "cover"}
 
 # Suggested-entity categories for the admin "suggest entities" / invitation
 # mode picker. Keyword matching is against entity_id and friendly_name,
-# case-insensitive. Deliberately narrow (unlike a "detect every integration"
+# case-insensitive, and per whole word — a substring match makes "cancela"
+# (a gate) hit "cancelar" (to cancel), which drags in every cancel button in
+# the house. Deliberately narrow (unlike a "detect every integration"
 # dashboard) — only what's actually useful to hand to a guest.
 ACCESS_KEYWORDS = {"portal", "puerta", "door", "gate", "garaje", "verja", "cancela", "cerradura", "entrance", "garage"}
 LIGHT_KEYWORDS = {"luz", "lampara", "light"}
 ACCESS_DOMAINS = {"lock", "input_button", "button", "cover"}
 LIGHT_DOMAINS = {"light"}
+
+# Plenty of integrations expose things that are technically a `light` but that
+# nobody would ever hand to a guest: status LEDs on hubs and presence sensors,
+# camera fill/ring lights, blink-on-startup toggles. Suggesting them buries the
+# real room lights in a list dozens of entries long, and a guest tapping one by
+# mistake burns a single-use link on nothing.
+EXCLUDE_LIGHT_KEYWORDS = {
+    "indicator", "indicador", "indicadora",
+    "camera", "cámara", "camara",
+    "hub",
+    "presence", "presencia",
+    "notification", "notificación", "notificacion",
+    "startup", "blink", "ring",
+}
+
+# Device-maintenance buttons inherit their device's name, so a Shelly on the
+# storage-room door shows up as "Puerta Trastero Restart" and matches the
+# access keywords. Rebooting the relay is not what a guest link is for.
+EXCLUDE_ACCESS_KEYWORDS = {
+    "reboot", "restart", "reiniciar",
+    "identify", "identificar",
+    "update", "actualizar", "firmware", "ota",
+    "reset", "calibrate", "calibrar",
+}
 
 
 class AdminLoginRequest(BaseModel):

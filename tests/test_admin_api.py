@@ -687,6 +687,43 @@ async def test_suggested_entities_categorizes_correctly(client, admin_session, m
     assert "switch.regleta_cocina" not in by_id
 
 
+async def test_suggested_entities_excludes_indicator_and_status_lights(client, admin_session, mock_ha_client):
+    """Status LEDs, camera lights and presence-sensor RGB are `light` entities
+    nobody hands to a guest — suggesting them buries the real room lights and
+    lets a guest burn a single-use link on the wrong one."""
+    mock_ha_client["get_states"].return_value = [
+        {"entity_id": "light.cuadro_a", "state": "on", "attributes": {"friendly_name": "Cuadro A"}},
+        {"entity_id": "light.espejo_bano_01", "state": "on", "attributes": {"friendly_name": "Espejo baño 01"}},
+        # All of these must be excluded:
+        {"entity_id": "light.54ef44461adf_led", "state": "on", "attributes": {"friendly_name": "Smart Home Hub 2 LED"}},
+        {"entity_id": "light.foo_indicator_light", "state": "on", "attributes": {"friendly_name": "Salon Indicator Light"}},
+        {"entity_id": "light.apollo_msr_2_rgb_light", "state": "on", "attributes": {"friendly_name": "Sensor presencia trastero RGB Light"}},
+        {"entity_id": "switch.arenero_camera_light_indicator", "state": "on", "attributes": {"friendly_name": "Indicador de luz de cámara"}},
+        {"entity_id": "switch.foo_startup_light_blink", "state": "on", "attributes": {"friendly_name": "Startup Light Blink"}},
+        {"entity_id": "switch.bar_ring_light_always_on", "state": "on", "attributes": {"friendly_name": "Ring Light Always On"}},
+    ]
+    resp = await client.get("/admin/ha/suggested-entities?categories=lights", cookies=admin_session)
+    assert resp.status_code == 200
+    assert {e["entity_id"] for e in resp.json()} == {"light.cuadro_a", "light.espejo_bano_01"}
+
+
+async def test_suggested_access_entities_ignore_partial_words_and_maintenance(client, admin_session, mock_ha_client):
+    """"cancela" (a gate) must not match "cancelar" (to cancel), and a relay's
+    restart button must not ride in on its device name."""
+    mock_ha_client["get_states"].return_value = [
+        {"entity_id": "input_button.portal_qvadis", "state": "unknown", "attributes": {"friendly_name": "Portal"}},
+        {"entity_id": "cover.puerta_trastero_door", "state": "closed", "attributes": {"friendly_name": "Puerta Trastero Door"}},
+        # All of these must be excluded:
+        {"entity_id": "button.cafetera_cancelar", "state": "unknown", "attributes": {"friendly_name": "Cafetera Cancelar"}},
+        {"entity_id": "button.comedero_cancelar_alimentacion", "state": "unknown", "attributes": {"friendly_name": "Cancelar alimentación manual"}},
+        {"entity_id": "button.puerta_trastero_reboot", "state": "unknown", "attributes": {"friendly_name": "Puerta Trastero Restart"}},
+        {"entity_id": "button.portal_identify", "state": "unknown", "attributes": {"friendly_name": "Portal Identify"}},
+    ]
+    resp = await client.get("/admin/ha/suggested-entities?categories=access", cookies=admin_session)
+    assert resp.status_code == 200
+    assert {e["entity_id"] for e in resp.json()} == {"input_button.portal_qvadis", "cover.puerta_trastero_door"}
+
+
 async def test_suggested_entities_single_category(client, admin_session, mock_ha_client):
     mock_ha_client["get_states"].return_value = [
         {"entity_id": "lock.puerta", "state": "locked", "attributes": {"friendly_name": "Puerta"}},

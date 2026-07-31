@@ -1,6 +1,7 @@
 """Admin API router."""
 import ipaddress
 import json
+import re
 import secrets
 import time
 from typing import Any
@@ -18,6 +19,8 @@ from app.models import (
     ACCESS_KEYWORDS,
     AdminLanguageRequest,
     AdminLoginRequest,
+    EXCLUDE_ACCESS_KEYWORDS,
+    EXCLUDE_LIGHT_KEYWORDS,
     LIGHT_DOMAINS,
     LIGHT_KEYWORDS,
     NEVER_EXPIRES_SECONDS,
@@ -379,14 +382,25 @@ async def ha_entities(_: str = Depends(require_admin)) -> list[dict]:
     ]
 
 
+def _words(entity_id: str, friendly_name: str) -> set[str]:
+    """Whole words of an entity's id and friendly name, lowercased. Splitting on
+    underscores too is what makes `input_button.portal_qvadis` match "portal"
+    while `button.cafetera_cancelar` no longer matches "cancela"."""
+    return set(re.split(r"[\W_]+", f"{entity_id} {friendly_name}".lower()))
+
+
 def _matches_category(entity_id: str, friendly_name: str, domain: str, category: str) -> bool:
-    text = f"{entity_id} {friendly_name}".lower()
+    words = _words(entity_id, friendly_name)
     if category == "access":
-        return domain in ACCESS_DOMAINS and any(kw in text for kw in ACCESS_KEYWORDS)
+        if words & EXCLUDE_ACCESS_KEYWORDS:
+            return False
+        return domain in ACCESS_DOMAINS and bool(words & ACCESS_KEYWORDS)
     if category == "lights":
+        if words & EXCLUDE_LIGHT_KEYWORDS:
+            return False
         if domain in LIGHT_DOMAINS:
             return True
-        return domain == "switch" and any(kw in text for kw in LIGHT_KEYWORDS)
+        return domain == "switch" and bool(words & LIGHT_KEYWORDS)
     return False
 
 

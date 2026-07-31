@@ -766,6 +766,7 @@ function renderPicker(containerId, pickerState) {
   const allSelected = allEntities.filter(e => pickerState.selected.has(e.entity_id));
 
   container.innerHTML = `
+    ${pickerState.hideDomainFilter ? '' : `
     <div class="flex flex-wrap gap-1.5 mb-3">
       ${PICKER_DOMAINS.map(d => `<button class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-display font-medium border transition-colors
         ${pickerState.filter === d
@@ -775,7 +776,7 @@ function renderPicker(containerId, pickerState) {
         <span aria-hidden="true" class="material-symbols-outlined text-sm">${PICKER_ICONS[d] || 'devices'}</span>
         ${d === 'all' ? t('filter_all') : d === 'media_player' ? t('filter_media') : (domainLabel(d) || d.charAt(0).toUpperCase() + d.slice(1))}
       </button>`).join('')}
-    </div>
+    </div>`}
     <div class="relative mb-3">
       <span aria-hidden="true" class="material-symbols-outlined text-muted absolute left-3 top-1/2 -translate-y-1/2 text-lg">search</span>
       <input class="w-full pl-10 pr-3 py-2.5 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary"
@@ -845,12 +846,22 @@ function pickerRemove(containerId, entityId) {
 }
 
 // ── Create Token Modal ────────────────────────────────────────────────
+// The mode dropdown owns the selection: switching from "lights only" to
+// "access only" must leave the lights behind, not stack both. It also hides
+// the by-domain filter, which would only contradict the mode already applied —
+// the search box stays, so anything the mode missed is still reachable.
 async function applyModeSuggestion(categories) {
-  if (!categories) return;
+  createPicker.filter = 'all';
+  createPicker.hideDomainFilter = !!categories;
+  if (!categories) {
+    createPicker.selected = new Set();
+    renderPicker('create-picker', createPicker);
+    return;
+  }
   const r = await fetch(`${BASE}/admin/ha/suggested-entities?categories=${encodeURIComponent(categories)}`);
   if (!r.ok) { showToast(t('toast_failed_load_suggestions'), 'error'); return; }
   const suggested = await r.json();
-  suggested.forEach(e => createPicker.selected.add(e.entity_id));
+  createPicker.selected = new Set(suggested.map(e => e.entity_id));
   renderPicker('create-picker', createPicker);
 }
 
@@ -864,7 +875,7 @@ function setTimingMode(mode) {
 }
 
 function openCreateModal(preset = {}) {
-  createPicker = { selected: new Set(preset.entityIds || []), filter: 'all', search: '' };
+  createPicker = { selected: new Set(preset.entityIds || []), filter: 'all', search: '', hideDomainFilter: false };
   document.getElementById('create-modal-title').textContent = preset.title || t('create_modal_title');
   document.getElementById('f-label').value = preset.label || '';
   document.getElementById('f-slug').value = '';
