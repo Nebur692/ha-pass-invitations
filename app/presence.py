@@ -188,7 +188,24 @@ async def record_advertisement(
 # the per-device calibration buffer this can stay on permanently.
 MAX_KNOWN_SCANNERS = 64
 
+# A door is usually covered by one scanner, sometimes two when it sits between
+# them — that is redundancy against a fluctuating signal, and still means "at
+# the door". Past that, each extra scanner widens the area in which the lock can
+# be opened rather than making the check more reliable, and selecting every
+# scanner in the house turns "at the door" into "somewhere indoors, near
+# something". The empty case already fails closed; this is the opposite end.
+MAX_TIGHT_DOOR_SCANNERS = 2
+
 _scanners: dict[str, dict] = {}
+
+
+def selection_is_broad(chosen: list[str], seen: int) -> bool:
+    """Whether the chosen scanners cover more than a doorway."""
+    if len(chosen) > MAX_TIGHT_DOOR_SCANNERS:
+        return True
+    # Also broad in a small installation, where two of three scanners is most
+    # of the house even though two is normally fine.
+    return seen >= 4 and len(chosen) * 2 >= seen
 
 
 async def _note_scanner(now: float, source: str) -> None:

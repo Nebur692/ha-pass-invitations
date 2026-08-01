@@ -342,3 +342,28 @@ async def test_scanners_are_not_listed_while_bluetooth_is_off(client, admin_sess
     body = (await client.get("/admin/presence", cookies=admin_session)).json()
 
     assert body["bluetooth"]["available_scanners"] == []
+
+
+async def test_the_panel_warns_when_the_selection_covers_the_whole_house(
+    client, admin_session, mock_ha_client
+):
+    settings.presence_modes = ["ha_ble"]
+    for i in range(6):
+        await presence.record_advertisement([], f"AA:AA:AA:AA:AA:{i:02X}", -60, address="D:1")
+
+    settings.ble_scanners = ["AA:AA:AA:AA:AA:00"]
+    tight = (await client.get("/admin/presence", cookies=admin_session)).json()
+    assert tight["bluetooth"]["broad_selection"] is False
+
+    settings.ble_scanners = [f"AA:AA:AA:AA:AA:{i:02X}" for i in range(6)]
+    broad = (await client.get("/admin/presence", cookies=admin_session)).json()
+    assert broad["bluetooth"]["broad_selection"] is True
+
+
+async def test_no_broad_warning_while_bluetooth_is_off(client, admin_session):
+    settings.presence_modes = ["local_network"]
+    settings.ble_scanners = [f"AA:AA:AA:AA:AA:{i:02X}" for i in range(6)]
+
+    body = (await client.get("/admin/presence", cookies=admin_session)).json()
+
+    assert body["bluetooth"]["broad_selection"] is False

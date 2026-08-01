@@ -440,6 +440,12 @@ async def presence_status(_: str = Depends(require_admin)) -> dict:
             # The admin knows where their own hardware is, so picking the door
             # scanner from a named list beats making them walk around measuring.
             "available_scanners": available,
+            # Selecting every scanner in the house would quietly turn "at the
+            # door" into "somewhere indoors", so the panel says so. Not blocked:
+            # it is their house, and an odd layout might warrant it.
+            "broad_selection": ble_enabled and presence.selection_is_broad(
+                settings.ble_scanners, len(available)
+            ),
             # Distinguishes "you turned it on but HA won't stream to us" from
             # "you turned it on but never picked a door scanner".
             "streaming": ha_client.is_ble_healthy() if ble_enabled else False,

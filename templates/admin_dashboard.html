@@ -1349,6 +1349,10 @@ function renderScannerPicker(ble) {
   box.innerHTML = `
     <div class="text-[11px] font-mono font-bold uppercase tracking-wider text-muted mb-1.5">${esc(t('presence_scanners_title'))}</div>
     <p class="text-xs text-muted mb-2">${esc(t('presence_scanners_hint'))}</p>
+    ${ble.broad_selection ? `<p class="text-xs text-primary mb-2 flex items-start gap-1.5">
+      <span aria-hidden="true" class="material-symbols-outlined text-base flex-shrink-0">warning</span>
+      <span>${esc(t('presence_scanners_broad'))}</span>
+    </p>` : ''}
     <ul class="max-h-56 overflow-y-auto border border-border-light dark:border-border-dark rounded-xl list-none mb-4" role="list">
       ${list.map(s => `<li class="flex items-center gap-3 px-3 py-2.5 border-b border-border-light dark:border-border-dark last:border-b-0 hover:bg-soot/[0.03] dark:hover:bg-white/5 cursor-pointer transition-colors"
         data-action="toggle-scanner" data-source="${esc(s.source)}" role="button" tabindex="0">

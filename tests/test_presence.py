@@ -335,3 +335,35 @@ def test_a_distant_mac_is_not_claimed_as_a_match():
     names = {"44:17:93:AD:0C:70": "Something else entirely"}
 
     assert presence.match_scanner_name("44:17:93:AD:0C:7E", names) == (None, False)
+
+
+# ---------------------------------------------------------------------------
+# Warning when the chosen scanners cover more than a doorway
+# ---------------------------------------------------------------------------
+
+def test_one_or_two_door_scanners_is_not_broad():
+    """Two is redundancy against a fluctuating signal for a door sitting
+    between them — it still means "at the door"."""
+    assert presence.selection_is_broad(["AA"], seen=14) is False
+    assert presence.selection_is_broad(["AA", "BB"], seen=14) is False
+
+
+def test_more_than_two_is_broad():
+    assert presence.selection_is_broad(["AA", "BB", "CC"], seen=14) is True
+
+
+def test_selecting_every_scanner_is_broad():
+    """The failure this guards: "at the door" quietly becoming "somewhere
+    indoors, near something"."""
+    assert presence.selection_is_broad([f"{i:02X}" for i in range(14)], seen=14) is True
+
+
+def test_half_a_small_installation_is_broad_too():
+    """Two of four is most of the house, even though two is normally fine."""
+    assert presence.selection_is_broad(["AA", "BB"], seen=4) is True
+    assert presence.selection_is_broad(["AA"], seen=4) is False
+
+
+def test_nothing_chosen_is_not_reported_as_broad():
+    """That case fails closed elsewhere; conflating the two would be confusing."""
+    assert presence.selection_is_broad([], seen=14) is False
