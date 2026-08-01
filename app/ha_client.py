@@ -472,6 +472,19 @@ async def start_ws_listener() -> None:
     logger.info("HA WebSocket listener task started.")
 
 
+async def restart_ws_listener() -> None:
+    """Bring the listener back up so a settings change takes effect now.
+
+    Whether we subscribe to Bluetooth advertisements is decided when the
+    connection is established, so turning the ha_ble presence mode on or off
+    from the admin panel would otherwise wait for a container restart — which
+    is the friction app/settings_store.py exists to remove.
+    """
+    await stop_ws_listener()
+    await presence.reset_state()
+    await start_ws_listener()
+
+
 async def stop_ws_listener() -> None:
     global _ws_task
     if _ws_task:

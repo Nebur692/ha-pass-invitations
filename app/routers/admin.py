@@ -16,6 +16,7 @@ from app import geoip
 from app import ha_client
 from app import i18n
 from app import presence
+from app import settings_store
 from app.models import (
     ACCESS_DOMAINS,
     ACCESS_KEYWORDS,
@@ -26,6 +27,7 @@ from app.models import (
     LIGHT_DOMAINS,
     LIGHT_KEYWORDS,
     NEVER_EXPIRES_SECONDS,
+    SettingsUpdateRequest,
     SUPPORTED_DOMAINS,
     TokenCreateRequest,
     TokenUpdateEntitiesRequest,
@@ -366,6 +368,42 @@ async def delete_token(token_id: str, _: str = Depends(require_admin)) -> dict:
 # ---------------------------------------------------------------------------
 # HA entity list proxy
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Runtime settings (see app/settings_store.py)
+# ---------------------------------------------------------------------------
+
+@router.get("/settings")
+async def read_settings(_: str = Depends(require_admin)) -> dict:
+    return {
+        "settings": settings_store.current(),
+        "needs_reconnect": sorted(settings_store.NEEDS_WS_RESTART),
+    }
+
+
+@router.patch("/settings")
+async def update_settings(
+    body: SettingsUpdateRequest, _: str = Depends(require_admin)
+) -> dict:
+    changes = body.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No changes")
+    if await settings_store.apply(changes):
+        await ha_client.restart_ws_listener()
+    return {"settings": settings_store.current()}
+
+
+@router.delete("/settings/{key}")
+async def reset_setting(key: str, _: str = Depends(require_admin)) -> dict:
+    """Drop an override so the environment value applies again."""
+    try:
+        needs_restart = await settings_store.reset(key)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if needs_restart:
+        await ha_client.restart_ws_listener()
+    return {"settings": settings_store.current()}
+
 
 # ---------------------------------------------------------------------------
 # Presence proofs (see app/presence.py)

@@ -157,6 +157,18 @@ docker compose up -d
 In addition to every option from upstream (admin credentials, app name, contact message, branding,
 log retention, guest URL — see [DOCS.md](DOCS.md)), this fork adds:
 
+> **Since 1.6.0 most of these are editable from the admin panel**, under the
+> **Settings** button, and apply without a restart. The environment seeds the
+> value; once you change it in the panel the stored value wins, and you can
+> revert it. Only credentials and connection details — `HA_BASE_URL`,
+> `HA_TOKEN`, `DB_PATH`, `PORT`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` — stay
+> environment-only: the app cannot read its own database to find out where its
+> database is.
+>
+> Upgrading keeps whatever you were already running with: values that differ
+> from the defaults are stored on first start, so you can then delete those
+> variables from your container without anything reverting.
+
 | Variable | Description | Default |
 |---|---|---|
 | `TIMEZONE` | IANA timezone used to evaluate recurring weekly windows | `UTC` |
@@ -379,6 +391,18 @@ docker compose up -d
 
 Además de todas las opciones ya existentes (credenciales de admin, nombre de la app, mensaje de
 contacto, marca, retención de logs, URL de invitado — ver [DOCS.md](DOCS.md)), este fork añade:
+
+> **Desde la 1.6.0 la mayoría se editan desde el panel de administración**, en
+> el botón **Ajustes**, y se aplican sin reiniciar. El entorno da el valor
+> inicial; en cuanto lo cambias en el panel manda el guardado, y puedes
+> revertirlo. Solo las credenciales y los datos de conexión —`HA_BASE_URL`,
+> `HA_TOKEN`, `DB_PATH`, `PORT`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`— siguen
+> siendo exclusivos del entorno: la aplicación no puede leer su propia base de
+> datos para averiguar dónde está su base de datos.
+>
+> Al actualizar se conserva lo que ya tenías: los valores distintos de los de
+> por defecto se guardan en el primer arranque, así que después puedes borrar
+> esas variables de tu contenedor sin que nada se revierta.
 
 | Variable | Descripción | Por defecto |
 |---|---|---|

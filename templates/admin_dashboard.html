@@ -93,6 +93,9 @@
             <span aria-hidden="true" class="material-symbols-outlined text-[16px]">dark_mode</span>
           </button>
         </div>
+        <button data-action="open-settings-modal" aria-label="{{ t('settings') }}" title="{{ t('settings') }}" class="w-8 h-8 flex items-center justify-center rounded-lg border border-border-light dark:border-border-dark hover:bg-soot/5 dark:hover:bg-white/5 transition-colors text-muted">
+          <span aria-hidden="true" class="material-symbols-outlined text-base">tune</span>
+        </button>
         <button data-action="open-presence-modal" aria-label="{{ t('presence') }}" title="{{ t('presence') }}" class="w-8 h-8 flex items-center justify-center rounded-lg border border-border-light dark:border-border-dark hover:bg-soot/5 dark:hover:bg-white/5 transition-colors text-muted">
           <span aria-hidden="true" class="material-symbols-outlined text-base">sensors</span>
         </button>
@@ -379,6 +382,25 @@
     <div class="flex justify-end gap-2 mt-5 pt-4 border-t border-border-light dark:border-border-dark">
       <button data-action="close-modal" data-modal="profile" class="px-4 py-2 text-sm font-display font-medium rounded-xl border border-border-light dark:border-border-dark hover:bg-soot/5 dark:hover:bg-white/5 transition-colors">{{ t('cancel') }}</button>
       <button data-action="submit-profile-language" class="px-4 py-2 text-sm font-display font-semibold rounded-xl bg-primary hover:bg-primary-hover text-white transition-colors">{{ t('save') }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-soot/40 dark:bg-black/50 backdrop-blur-sm" id="settings-modal">
+  <div class="modal-animate bg-surface-light dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="flex items-center justify-between mb-3">
+      <h2 id="settings-modal-title" class="text-lg font-serif">{{ t('settings_modal_title') }}</h2>
+      <button data-action="close-modal" data-modal="settings" aria-label="{{ t('close_dialog') }}" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-soot/5 dark:hover:bg-white/5 text-muted transition-colors">
+        <span aria-hidden="true" class="material-symbols-outlined text-xl">close</span>
+      </button>
+    </div>
+    <p class="text-xs text-muted mb-4">{{ t('settings_intro') }}</p>
+    <div id="settings-fields"></div>
+    <div id="settings-error" role="alert" class="text-primary text-xs min-h-[18px] mt-2"></div>
+    <div class="flex justify-end gap-2 mt-5 pt-4 border-t border-border-light dark:border-border-dark">
+      <button data-action="close-modal" data-modal="settings" class="px-4 py-2 text-sm font-display font-medium rounded-xl border border-border-light dark:border-border-dark hover:bg-soot/5 dark:hover:bg-white/5 transition-colors">{{ t('cancel') }}</button>
+      <button data-action="submit-settings" class="px-4 py-2 text-sm font-display font-semibold rounded-xl bg-primary hover:bg-primary-hover text-white transition-colors">{{ t('save') }}</button>
     </div>
   </div>
 </div>
@@ -1117,6 +1139,139 @@ async function confirmUnbind(id) {
   });
 }
 
+// ── Settings ──────────────────────────────────────────────────────────
+// Only add-on installs get a configuration form, drawn by the Home Assistant
+// Supervisor. A standalone container gets none, so this is the only place its
+// admin can change anything without editing the deployment and restarting.
+// Credentials and bootstrap options are absent on purpose — see
+// app/settings_store.py.
+const SETTINGS_FIELDS = [
+  { key: 'app_name',                  type: 'text',   section: 'general' },
+  { key: 'contact_message',           type: 'text',   section: 'general' },
+  { key: 'guest_url',                 type: 'text',   section: 'general' },
+  { key: 'timezone',                  type: 'text',   section: 'general' },
+  { key: 'brand_primary',             type: 'color',  section: 'general' },
+  { key: 'brand_bg',                  type: 'color',  section: 'general' },
+  { key: 'access_log_retention_days', type: 'number', section: 'general' },
+  { key: 'local_network_cidrs',       type: 'list',   section: 'access'  },
+  { key: 'presence_modes',            type: 'modes',  section: 'presence' },
+  { key: 'presence_policy',           type: 'policy', section: 'presence' },
+  { key: 'ble_scanners',              type: 'list',   section: 'presence' },
+  { key: 'ble_min_rssi',              type: 'number', section: 'presence' },
+  { key: 'ble_max_age_seconds',       type: 'number', section: 'presence' },
+];
+let settingsState = {};
+
+function settingsInput(f, entry) {
+  const id = `set-${f.key}`;
+  const v = entry.value;
+  if (f.type === 'modes') {
+    return ['local_network', 'ha_ble'].map(m => `<label class="flex items-center gap-2 text-sm mb-1">
+      <input type="checkbox" id="${id}-${m}" ${v.includes(m) ? 'checked' : ''}
+        class="rounded border-border-light dark:border-border-dark">
+      <span class="font-mono text-xs">${m}</span>
+      <span class="text-xs text-muted">${esc(t('set_mode_' + m))}</span>
+    </label>`).join('');
+  }
+  if (f.type === 'policy') {
+    return `<select id="${id}" class="w-full px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary cursor-pointer">
+      <option value="any" ${v === 'any' ? 'selected' : ''}>${esc(t('set_policy_any'))}</option>
+      <option value="all" ${v === 'all' ? 'selected' : ''}>${esc(t('set_policy_all'))}</option>
+    </select>`;
+  }
+  const type = f.type === 'number' ? 'number' : f.type === 'color' ? 'color' : 'text';
+  const value = f.type === 'list' ? (v || []).join(', ') : (v ?? '');
+  return `<input id="${id}" type="${type}" value="${esc(String(value))}"
+    class="w-full px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary${f.type === 'color' ? ' h-10 cursor-pointer' : ''}">`;
+}
+
+function renderSettings() {
+  const sections = ['general', 'access', 'presence'];
+  document.getElementById('settings-fields').innerHTML = sections.map(section => `
+    <div class="mb-5">
+      <div class="text-[11px] font-mono font-bold uppercase tracking-wider text-muted mb-2">${esc(t('set_section_' + section))}</div>
+      ${SETTINGS_FIELDS.filter(f => f.section === section).map(f => {
+        const entry = settingsState[f.key];
+        if (!entry) return '';
+        return `<div class="mb-3">
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <label for="set-${f.key}" class="text-xs font-medium">${esc(t('set_' + f.key))}</label>
+            ${entry.overridden ? `<button data-action="reset-setting" data-key="${f.key}"
+              class="text-[10px] font-mono text-muted hover:text-primary underline">${esc(t('set_reset'))}</button>` : ''}
+          </div>
+          ${settingsInput(f, entry)}
+          <p class="text-[11px] text-muted mt-1">${esc(t('set_hint_' + f.key))}</p>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+function collectSettings() {
+  const out = {};
+  for (const f of SETTINGS_FIELDS) {
+    const entry = settingsState[f.key];
+    if (!entry) continue;
+    let value;
+    if (f.type === 'modes') {
+      value = ['local_network', 'ha_ble'].filter(m => document.getElementById(`set-${f.key}-${m}`).checked);
+    } else {
+      const el = document.getElementById(`set-${f.key}`);
+      if (!el) continue;
+      if (f.type === 'list') value = el.value.split(',').map(s => s.trim()).filter(Boolean);
+      else if (f.type === 'number') value = parseInt(el.value, 10);
+      else value = el.value;
+    }
+    // Send only what actually changed, so one bad field cannot silently
+    // rewrite the rest and so the response stays a faithful diff.
+    if (JSON.stringify(value) !== JSON.stringify(entry.value)) out[f.key] = value;
+  }
+  return out;
+}
+
+async function loadSettings() {
+  const r = await fetch(`${BASE}/admin/settings`);
+  if (!r.ok) return false;
+  settingsState = (await r.json()).settings;
+  renderSettings();
+  return true;
+}
+
+async function submitSettings() {
+  const errEl = document.getElementById('settings-error');
+  errEl.textContent = '';
+  const changes = collectSettings();
+  if (!Object.keys(changes).length) { closeSettingsModal(); return; }
+  const r = await fetch(`${BASE}/admin/settings`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(changes),
+  });
+  if (!r.ok) {
+    const detail = await r.json().catch(() => ({}));
+    errEl.textContent = Array.isArray(detail.detail)
+      ? detail.detail.map(d => `${d.loc?.slice(-1)[0]}: ${d.msg}`).join('; ')
+      : (detail.detail || t('toast_error_generic'));
+    return;
+  }
+  settingsState = (await r.json()).settings;
+  showToast(t('toast_settings_saved'), 'success');
+  location.reload();  // branding, name and language context are rendered server-side
+}
+
+async function resetSetting(key) {
+  const r = await fetch(`${BASE}/admin/settings/${key}`, {method: 'DELETE'});
+  if (!r.ok) { showToast(t('toast_error_generic'), 'error'); return; }
+  settingsState = (await r.json()).settings;
+  renderSettings();
+}
+
+async function openSettingsModal() {
+  document.getElementById('settings-error').textContent = '';
+  if (!await loadSettings()) { showToast(t('toast_error_generic'), 'error'); return; }
+  openModal('settings-modal');
+}
+function closeSettingsModal() { closeModal('settings-modal'); }
+
 // ── Presence / Bluetooth ──────────────────────────────────────────────
 // Settings themselves come from the add-on options, like every other
 // deployment setting, so this panel reports them. What it adds is the
@@ -1192,8 +1347,23 @@ function renderCalibration(cal) {
         <span class="whitespace-nowrap">${esc(String(s.rssi))} dBm</span>
       </div>`).join('')}
       ${d.scanners[0] && d.scanners[0].name ? `<div class="text-[10px] text-muted font-mono mt-0.5 truncate">${esc(d.scanners[0].source)}</div>` : ''}
+      ${d.scanners[0] ? `<button data-action="use-scanner" data-source="${esc(d.scanners[0].source)}"
+        class="mt-1.5 px-2.5 py-1 text-[11px] font-display font-semibold rounded-lg border border-accent text-accent hover:bg-accent hover:text-white transition-colors">
+        ${esc(t('presence_use_scanner'))}
+      </button>` : ''}
     </li>`).join('')}
   </ul>`;
+}
+
+async function useScanner(source) {
+  const r = await fetch(`${BASE}/admin/settings`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ble_scanners: [source] }),
+  });
+  if (!r.ok) { showToast(t('toast_error_generic'), 'error'); return; }
+  showToast(t('toast_door_scanner_set'), 'success');
+  refreshPresenceStatus();
 }
 
 async function toggleCalibration() {
@@ -1257,7 +1427,7 @@ function closeModal(id) {
   releaseFocus();
 }
 
-['create-modal', 'edit-modal', 'extend-modal', 'confirm-modal', 'qr-modal', 'profile-modal', 'presence-modal'].forEach(id => {
+['create-modal', 'edit-modal', 'extend-modal', 'confirm-modal', 'qr-modal', 'profile-modal', 'presence-modal', 'settings-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', e => {
     if (e.target === e.currentTarget) {
       if (id === 'create-modal') closeCreateModal();
@@ -1267,6 +1437,7 @@ function closeModal(id) {
       else if (id === 'qr-modal') closeQrModal();
       else if (id === 'profile-modal') closeProfileModal();
       else if (id === 'presence-modal') closePresenceModal();
+      else if (id === 'settings-modal') closeSettingsModal();
     }
   });
 });
@@ -1415,6 +1586,7 @@ document.addEventListener('keydown', e => {
       'create-modal': closeCreateModal,
       'profile-modal': closeProfileModal,
       'presence-modal': closePresenceModal,
+      'settings-modal': closeSettingsModal,
     };
     for (const [id, closer] of Object.entries(closers)) {
       const m = document.getElementById(id);
@@ -1464,6 +1636,10 @@ document.addEventListener('click', e => {
     case 'toggle-activity': toggleActivity(); break;
 
     // Profile
+    case 'open-settings-modal': openSettingsModal(); break;
+    case 'submit-settings': submitSettings(); break;
+    case 'reset-setting': resetSetting(el.dataset.key); break;
+    case 'use-scanner': useScanner(el.dataset.source); break;
     case 'open-presence-modal': openPresenceModal(); break;
     case 'toggle-calibration': toggleCalibration(); break;
     case 'open-profile-modal': openProfileModal(); break;
@@ -1494,7 +1670,7 @@ document.addEventListener('click', e => {
 
     // Close any modal
     case 'close-modal': {
-      const modalMap = { create: closeCreateModal, edit: closeEditModal, extend: closeExtendModal, confirm: closeConfirmModal, qr: closeQrModal, profile: closeProfileModal, presence: closePresenceModal };
+      const modalMap = { create: closeCreateModal, edit: closeEditModal, extend: closeExtendModal, confirm: closeConfirmModal, qr: closeQrModal, profile: closeProfileModal, presence: closePresenceModal, settings: closeSettingsModal };
       const closer = modalMap[el.dataset.modal];
       if (closer) closer();
       break;

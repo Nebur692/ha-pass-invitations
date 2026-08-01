@@ -1,5 +1,7 @@
 """Pydantic request/response models."""
+import re
 from typing import Any
+
 from pydantic import BaseModel, Field, model_validator
 
 NEVER_EXPIRES_SECONDS = 4102444800  # 2099-12-31T00:00:00Z
@@ -145,6 +147,70 @@ class TokenUpdateExpiryRequest(BaseModel):
 class TokenUpdateScheduleRequest(BaseModel):
     starts_at: int | None = Field(default=None, gt=0)
     recurrence: RecurrenceSchedule | None = None
+
+
+class SettingsUpdateRequest(BaseModel):
+    """Admin edits to runtime settings (see app/settings_store.py).
+
+    Only fields actually present are changed, so the panel can save one section
+    without resending the rest. Validation mirrors what app/config.py enforces
+    at startup — a value accepted here must be one the process could have
+    booted with, or an admin could lock themselves out of their own front door
+    with a typo.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    app_name: str | None = Field(default=None, min_length=1, max_length=64)
+    contact_message: str | None = Field(default=None, max_length=500)
+    brand_bg: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    brand_primary: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    guest_url: str | None = Field(default=None, max_length=300)
+    timezone: str | None = None
+    access_log_retention_days: int | None = Field(default=None, ge=1, le=3650)
+    local_network_cidrs: list[str] | None = None
+    presence_modes: list[str] | None = None
+    presence_policy: str | None = None
+    ble_scanners: list[str] | None = None
+    ble_min_rssi: int | None = Field(default=None, ge=-120, le=0)
+    ble_max_age_seconds: int | None = Field(default=None, ge=5, le=600)
+
+    @model_validator(mode="after")
+    def _validate(self):
+        import ipaddress
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        from app.config import VALID_PRESENCE_MODES
+
+        if self.timezone is not None:
+            try:
+                ZoneInfo(self.timezone)
+            except (ZoneInfoNotFoundError, ValueError) as exc:
+                raise ValueError(f"Invalid timezone: {self.timezone!r}") from exc
+
+        if self.guest_url:
+            if not self.guest_url.startswith(("http://", "https://")):
+                raise ValueError("guest_url must start with http:// or https://")
+
+        for cidr in self.local_network_cidrs or []:
+            try:
+                ipaddress.ip_network(cidr, strict=False)
+            except ValueError as exc:
+                raise ValueError(f"Invalid CIDR: {cidr!r}") from exc
+
+        if self.presence_modes is not None:
+            unknown = set(self.presence_modes) - VALID_PRESENCE_MODES
+            if unknown:
+                raise ValueError(f"Unknown presence modes: {sorted(unknown)}")
+
+        if self.presence_policy is not None and self.presence_policy not in ("any", "all"):
+            raise ValueError("presence_policy must be 'any' or 'all'")
+
+        for mac in self.ble_scanners or []:
+            if not re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", mac):
+                raise ValueError(f"Invalid scanner MAC: {mac!r}")
+
+        return self
 
 
 class CommandRequest(BaseModel):

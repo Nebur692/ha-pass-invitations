@@ -156,6 +156,37 @@ async def list_tokens() -> list[aiosqlite.Row]:
         return await cur.fetchall()
 
 
+async def get_settings() -> dict[str, Any]:
+    """Admin-edited setting overrides. Values are stored as JSON."""
+    db = await get_db()
+    async with db.execute("SELECT key, value FROM settings") as cur:
+        rows = await cur.fetchall()
+    stored: dict[str, Any] = {}
+    for row in rows:
+        try:
+            stored[row["key"]] = json.loads(row["value"])
+        except json.JSONDecodeError:
+            logger.warning("Discarding unreadable stored setting %r", row["key"])
+    return stored
+
+
+async def set_setting(key: str, value: Any, updated_at: int) -> None:
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                          updated_at = excluded.updated_at""",
+        (key, json.dumps(value), updated_at),
+    )
+    await db.commit()
+
+
+async def delete_setting(key: str) -> None:
+    db = await get_db()
+    await db.execute("DELETE FROM settings WHERE key = ?", (key,))
+    await db.commit()
+
+
 async def list_bound_token_secrets() -> list[tuple[str, str]]:
     """(id, bound_secret) of every usable token that has claimed a device.
 

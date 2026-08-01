@@ -20,6 +20,7 @@ from app.ingress import get_ingress_path
 from app.models import NEVER_EXPIRES_SECONDS
 from app.rate_limiter import rate_limiter
 from app.routers import admin, guest
+from app import settings_store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +42,17 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.critical("Failed to initialize database at %s: %s", settings.db_path, exc)
         raise RuntimeError(f"Database initialization failed: {exc}") from exc
+
+    # Stored settings must be applied before anything reads them — the HA
+    # listener below decides whether to subscribe to Bluetooth from
+    # settings.presence_modes. Seeding runs after loading so an upgrade keeps
+    # whatever the container was already configured with, letting the admin
+    # then drop those environment variables without reverting to defaults.
+    try:
+        await settings_store.load()
+        await settings_store.seed_from_environment()
+    except Exception:
+        logger.exception("Could not apply stored settings — using the environment only")
 
     ha_client.init_client()  # sync — no await
 
