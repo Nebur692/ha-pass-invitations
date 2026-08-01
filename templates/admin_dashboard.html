@@ -1139,7 +1139,9 @@ async function refreshPresenceStatus() {
   if (!r.ok) return;
   const p = await r.json();
   const ble = p.bluetooth;
-  const scanners = ble.scanners.length ? ble.scanners.join(', ') : t('presence_no_scanner');
+  const scanners = ble.scanners.length
+    ? ble.scanners.map(s => s.name ? `${s.name}${s.approximate ? '?' : ''}` : s.source).join(', ')
+    : t('presence_no_scanner');
   document.getElementById('presence-status').innerHTML =
     presenceRow(t('presence_modes'), p.modes.join(' + ') || '—') +
     presenceRow(t('presence_policy'), p.policy) +
@@ -1186,8 +1188,10 @@ function renderCalibration(cal) {
       <div class="text-sm font-medium truncate">${esc(d.name || d.address)}</div>
       <div class="text-[11px] text-muted font-mono truncate mb-1">${esc(d.address)}</div>
       ${d.scanners.slice(0, 4).map((s, i) => `<div class="flex items-center justify-between gap-2 text-[11px] font-mono ${i === 0 ? 'text-accent font-bold' : 'text-muted'}">
-        <span class="truncate">${esc(s.source)}</span><span>${esc(String(s.rssi))} dBm</span>
+        <span class="truncate" title="${esc(s.source)}">${esc(s.name || s.source)}${s.name && s.approximate ? ` <span class="opacity-60">${esc(t('presence_name_guess'))}</span>` : ''}</span>
+        <span class="whitespace-nowrap">${esc(String(s.rssi))} dBm</span>
       </div>`).join('')}
+      ${d.scanners[0] && d.scanners[0].name ? `<div class="text-[10px] text-muted font-mono mt-0.5 truncate">${esc(d.scanners[0].source)}</div>` : ''}
     </li>`).join('')}
   </ul>`;
 }

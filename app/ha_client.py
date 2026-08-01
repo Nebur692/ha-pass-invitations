@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -327,6 +328,51 @@ async def _handle_ble_event(event: dict) -> None:
 def is_ble_healthy() -> bool:
     """Whether Bluetooth advertisements are actually streaming from HA."""
     return _ble_healthy and is_ws_healthy()
+
+
+# ---------------------------------------------------------------------------
+# Device registry — only reachable over WebSocket, so fetched on demand
+# ---------------------------------------------------------------------------
+DEVICE_REGISTRY_TTL = 600
+
+_device_macs: dict[str, str] = {}
+_device_macs_at: float = 0.0
+
+
+async def get_device_mac_names(force: bool = False) -> dict[str, str]:
+    """MAC address -> device name, from Home Assistant's device registry.
+
+    Used to put a name next to a Bluetooth scanner instead of a bare MAC. The
+    registry is not exposed over the REST API, so this opens a short-lived
+    WebSocket of its own: it is consulted only while an admin is looking at the
+    presence panel, and deliberately kept off the long-lived listener rather
+    than adding request/response plumbing to the loop that carries state
+    changes and advertisements.
+    """
+    global _device_macs, _device_macs_at
+    now = time.monotonic()
+    if not force and _device_macs_at and now - _device_macs_at < DEVICE_REGISTRY_TTL:
+        return _device_macs
+
+    names: dict[str, str] = {}
+    async with websockets.connect(_build_ws_url()) as ws:
+        await ws.recv()  # auth_required
+        await ws.send(json.dumps({"type": "auth", "access_token": settings.ha_token}))
+        if json.loads(await ws.recv()).get("type") != "auth_ok":
+            raise RuntimeError("HA WebSocket auth failed")
+        await ws.send(json.dumps({"id": 1, "type": "config/device_registry/list"}))
+        message = json.loads(await ws.recv())
+    for device in message.get("result") or []:
+        name = device.get("name_by_user") or device.get("name")
+        if not name:
+            continue
+        for kind, value in device.get("connections") or []:
+            if kind == "mac" and value:
+                names[value.upper()] = name
+
+    _device_macs = names
+    _device_macs_at = now
+    return names
 
 
 async def _ws_listener() -> None:

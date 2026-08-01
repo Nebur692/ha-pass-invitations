@@ -204,6 +204,45 @@ _calibration_until: float = 0.0
 _calibration: dict[str, dict] = {}
 
 
+# A scanner reports advertisements from its Bluetooth MAC, but Home Assistant's
+# device registry knows it by its WiFi MAC, so an exact lookup finds nothing.
+# On the ESP32 inside every Shelly Gen2+ the two are a fixed distance apart:
+# base address for WiFi, +1 for the access point, +2 for Bluetooth. Measured
+# across eight scanners on a real installation, all eight were exactly +2.
+#
+# Treated as a hint, never as fact: the offset is an ESP32 convention, and a
+# scanner built on anything else may not follow it — hence `approximate`.
+MAC_OFFSET_CANDIDATES = (0, 2, 1, 3)
+
+
+def _mac_to_int(mac: str) -> int | None:
+    try:
+        return int(mac.replace(":", "").replace("-", ""), 16)
+    except ValueError:
+        return None
+
+
+def _int_to_mac(value: int) -> str:
+    return ":".join(f"{value:012X}"[i:i + 2] for i in range(0, 12, 2))
+
+
+def match_scanner_name(mac: str, device_names: dict[str, str]) -> tuple[str | None, bool]:
+    """(name, approximate) for a scanner MAC, or (None, False) if unrecognised."""
+    normalised = mac.upper()
+    if normalised in device_names:
+        return device_names[normalised], False
+    numeric = _mac_to_int(normalised)
+    if numeric is None:
+        return None, False
+    for offset in MAC_OFFSET_CANDIDATES:
+        if offset == 0:
+            continue
+        name = device_names.get(_int_to_mac(numeric - offset))
+        if name:
+            return name, True
+    return None, False
+
+
 async def start_calibration(duration: float = CALIBRATION_DURATION_SECONDS) -> float:
     global _calibration_until
     async with _lock:

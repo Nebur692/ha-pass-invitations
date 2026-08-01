@@ -197,8 +197,42 @@ async def test_presence_status_reports_the_live_configuration(client, admin_sess
 
     assert body["modes"] == ["local_network", "ha_ble"]
     assert body["bluetooth"]["enabled"] is True
-    assert body["bluetooth"]["scanners"] == [DOOR]
+    assert body["bluetooth"]["scanners"] == [
+        {"source": DOOR, "name": None, "approximate": False}
+    ]
     assert body["bluetooth"]["min_rssi"] == -65
+
+
+async def test_scanners_are_shown_by_name_when_home_assistant_knows_them(
+    client, admin_session, mock_ha_client
+):
+    """A scanner advertises from its WiFi MAC plus two on ESP32 hardware, so
+    the panel can say "Persiana recibidor" instead of a bare address."""
+    settings.presence_modes = ["ha_ble"]
+    settings.ble_scanners = ["44:17:93:AD:0C:7E"]
+    mock_ha_client["get_device_mac_names"].return_value = {
+        "44:17:93:AD:0C:7C": "Persiana recibidor"
+    }
+
+    body = (await client.get("/admin/presence", cookies=admin_session)).json()
+
+    assert body["bluetooth"]["scanners"] == [
+        {"source": "44:17:93:AD:0C:7E", "name": "Persiana recibidor", "approximate": True}
+    ]
+
+
+async def test_a_broken_device_registry_does_not_break_the_panel(
+    client, admin_session, mock_ha_client
+):
+    """A nameless scanner is a cosmetic loss, not a reason to fail the page."""
+    settings.presence_modes = ["ha_ble"]
+    settings.ble_scanners = [DOOR]
+    mock_ha_client["get_device_mac_names"].side_effect = RuntimeError("HA unreachable")
+
+    resp = await client.get("/admin/presence", cookies=admin_session)
+
+    assert resp.status_code == 200
+    assert resp.json()["bluetooth"]["scanners"][0]["name"] is None
 
 
 async def test_presence_status_requires_admin(client):
@@ -233,6 +267,7 @@ async def test_calibration_shows_which_scanner_hears_a_device_best(client, admin
 
     device = next(d for d in body["devices"] if d["address"] == "BL:UB:UT:00:00:01")
     assert device["name"] == "BLU Button1"
+    assert all("name" in s and "approximate" in s for s in device["scanners"])
     assert [s["source"] for s in device["scanners"]] == [
         "B8:D6:1A:89:52:36",  # strongest first — this is the door
         "44:17:93:CE:E7:2E",

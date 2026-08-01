@@ -1,6 +1,7 @@
 """Admin API router."""
 import ipaddress
 import json
+import logging
 import re
 import secrets
 import time
@@ -32,6 +33,8 @@ from app.models import (
     TokenUpdateScheduleRequest,
 )
 from app.rate_limiter import RateLimiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin")
 
@@ -378,6 +381,7 @@ async def presence_status(_: str = Depends(require_admin)) -> dict:
     scanner's MAC cannot reasonably be guessed by hand.
     """
     ble_enabled = "ha_ble" in settings.presence_modes
+    names = await _device_names()
     return {
         "modes": settings.presence_modes,
         "policy": settings.presence_policy,
@@ -386,11 +390,33 @@ async def presence_status(_: str = Depends(require_admin)) -> dict:
             # Distinguishes "you turned it on but HA won't stream to us" from
             # "you turned it on but never picked a door scanner".
             "streaming": ha_client.is_ble_healthy() if ble_enabled else False,
-            "scanners": settings.ble_scanners,
+            "scanners": [_named_scanner(mac, names) for mac in settings.ble_scanners],
             "min_rssi": settings.ble_min_rssi,
             "max_age_seconds": settings.ble_max_age_seconds,
         },
     }
+
+
+async def _device_names() -> dict[str, str]:
+    """Never fatal: a nameless scanner is a cosmetic loss, not a broken panel."""
+    try:
+        return await ha_client.get_device_mac_names()
+    except Exception:
+        logger.warning("Could not read the HA device registry for scanner names")
+        return {}
+
+
+def _named_scanner(mac: str, names: dict[str, str]) -> dict:
+    name, approximate = presence.match_scanner_name(mac, names)
+    return {"source": mac, "name": name, "approximate": approximate}
+
+
+async def _name_calibration(snapshot: dict) -> dict:
+    names = await _device_names()
+    for device in snapshot["devices"]:
+        for scanner in device["scanners"]:
+            scanner.update(_named_scanner(scanner["source"], names))
+    return snapshot
 
 
 @router.post("/presence/calibration")
@@ -401,18 +427,18 @@ async def presence_calibration_start(_: str = Depends(require_admin)) -> dict:
             detail="Enable the ha_ble presence mode first",
         )
     await presence.start_calibration()
-    return await presence.calibration_snapshot()
+    return await _name_calibration(await presence.calibration_snapshot())
 
 
 @router.delete("/presence/calibration")
 async def presence_calibration_stop(_: str = Depends(require_admin)) -> dict:
     await presence.stop_calibration()
-    return await presence.calibration_snapshot()
+    return await _name_calibration(await presence.calibration_snapshot())
 
 
 @router.get("/presence/calibration")
 async def presence_calibration(_: str = Depends(require_admin)) -> dict:
-    return await presence.calibration_snapshot()
+    return await _name_calibration(await presence.calibration_snapshot())
 
 
 @router.get("/ha/entities")

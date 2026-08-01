@@ -68,6 +68,8 @@ def mock_ha_client():
         "logbook_log": AsyncMock(return_value={}),
         "broadcast_token_expired": AsyncMock(),
         "invalidate_entity_cache": AsyncMock(),
+        "is_ble_healthy": MagicMock(return_value=True),
+        "get_device_mac_names": AsyncMock(return_value={}),
     }
     with patch.multiple("app.ha_client", **mocks):
         yield mocks

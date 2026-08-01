@@ -293,3 +293,45 @@ async def test_calibration_follows_a_device_across_scanners():
 
     assert [s["source"] for s in device["scanners"]] == ["HALLWAY", "LIVING:ROOM"]
     assert device["scanners"][0]["rssi"] == -48
+
+
+# ---------------------------------------------------------------------------
+# Putting a name to a scanner MAC
+# ---------------------------------------------------------------------------
+
+def test_scanner_name_resolves_exactly_when_the_mac_matches():
+    names = {"AA:BB:CC:DD:EE:FF": "Hallway plug"}
+
+    assert presence.match_scanner_name("aa:bb:cc:dd:ee:ff", names) == ("Hallway plug", False)
+
+
+def test_scanner_name_resolves_across_the_esp32_bluetooth_offset():
+    """Measured on a real installation: all eight Shelly Gen2+ scanners
+    advertised from exactly their registered WiFi MAC plus two, because that
+    is how the ESP32 lays out its addresses (base, +1 access point, +2 BT)."""
+    names = {"44:17:93:AD:0C:7C": "Persiana recibidor"}
+
+    name, approximate = presence.match_scanner_name("44:17:93:AD:0C:7E", names)
+
+    assert name == "Persiana recibidor"
+    assert approximate is True  # a convention, not a guarantee
+
+
+def test_scanner_name_prefers_an_exact_match_over_an_offset_one():
+    names = {"44:17:93:AD:0C:7E": "The scanner itself",
+             "44:17:93:AD:0C:7C": "Its WiFi side"}
+
+    assert presence.match_scanner_name("44:17:93:AD:0C:7E", names) == ("The scanner itself", False)
+
+
+def test_unknown_scanner_has_no_name():
+    assert presence.match_scanner_name("11:22:33:44:55:66", {}) == (None, False)
+    assert presence.match_scanner_name("not-a-mac", {"X": "y"}) == (None, False)
+
+
+def test_a_distant_mac_is_not_claimed_as_a_match():
+    """Two unrelated devices bought together can sit a few addresses apart, so
+    the search stays tight rather than naming the wrong one."""
+    names = {"44:17:93:AD:0C:70": "Something else entirely"}
+
+    assert presence.match_scanner_name("44:17:93:AD:0C:7E", names) == (None, False)
