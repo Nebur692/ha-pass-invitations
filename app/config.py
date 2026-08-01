@@ -19,7 +19,11 @@ class Settings(BaseSettings):
     ha_token: str = Field(min_length=1)
     db_path: str = Field(default="/data/db.sqlite", min_length=1)
     app_name: str = "Home Access"
-    contact_message: str = "Please request a new link from the person who shared this one."
+    # Free text the admin writes, appended after an already-translated sentence
+    # ("This guest session has ended…"). It cannot be translated for them, so it
+    # defaults to empty: an English default shown next to a Spanish sentence
+    # reads worse than saying nothing, and the translated sentence stands alone.
+    contact_message: str = ""
     access_log_retention_days: int = Field(default=90, ge=1)
     brand_bg: str = "#F2F0E9"
     brand_primary: str = "#D9523C"

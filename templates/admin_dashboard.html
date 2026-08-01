@@ -1222,8 +1222,13 @@ function collectSettings() {
       else value = el.value;
     }
     // Send only what actually changed, so one bad field cannot silently
-    // rewrite the rest and so the response stays a faithful diff.
-    if (JSON.stringify(value) !== JSON.stringify(entry.value)) out[f.key] = value;
+    // rewrite the rest and so the response stays a faithful diff. Colour
+    // inputs hand back lowercase hex whatever was put in, which would
+    // otherwise mark #F2F0E9 as edited the moment the dialog is opened.
+    const same = f.type === 'color'
+      ? String(value).toLowerCase() === String(entry.value ?? '').toLowerCase()
+      : JSON.stringify(value) === JSON.stringify(entry.value);
+    if (!same) out[f.key] = value;
   }
   return out;
 }

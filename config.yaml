@@ -21,7 +21,7 @@ options:
   admin_username: ""
   admin_password: ""
   app_name: "Home Access"
-  contact_message: "Please request a new link from the person who shared this one."
+  contact_message: ""
   brand_bg: "#F2F0E9"
   brand_primary: "#D9523C"
   guest_url: ""

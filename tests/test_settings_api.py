@@ -126,3 +126,22 @@ async def test_a_rejected_value_changes_nothing(client, admin_session):
 
     assert settings.timezone == before
     assert settings.app_name != "Casa"  # the whole request was refused
+
+
+async def test_the_contact_message_defaults_to_nothing(client, admin_session):
+    """It is free text appended after a sentence the guest already reads in
+    their own language, so an English default would show up mid-Spanish."""
+    from app.config import Settings
+
+    assert Settings.model_fields["contact_message"].get_default() == ""
+
+
+async def test_the_contact_message_can_be_written_in_any_language(client, admin_session):
+    resp = await client.patch(
+        "/admin/settings",
+        json={"contact_message": "Pídeme un enlace nuevo por WhatsApp."},
+        cookies=admin_session,
+    )
+
+    assert resp.status_code == 200
+    assert settings.contact_message == "Pídeme un enlace nuevo por WhatsApp."
