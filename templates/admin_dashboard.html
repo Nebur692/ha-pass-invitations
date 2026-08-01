@@ -1316,8 +1316,10 @@ async function refreshPresenceStatus() {
   const p = await r.json();
   const ble = p.bluetooth;
   presenceScanners = ble.scanners || [];
+  // Just the name. An "approximate" marker was pointless here — this is a
+  // summary line, and it rendered as a bare question mark stuck to the name.
   const scanners = ble.scanners.length
-    ? ble.scanners.map(s => s.name ? `${s.name}${s.approximate ? '?' : ''}` : s.source).join(', ')
+    ? ble.scanners.map(s => s.name || s.source).join(', ')
     : t('presence_no_scanner');
   document.getElementById('presence-status').innerHTML =
     presenceRow(t('presence_modes'), p.modes.join(' + ') || '—') +
@@ -1354,8 +1356,23 @@ async function refreshPresenceStatus() {
 function renderScannerPicker(ble) {
   const box = document.getElementById('presence-scanners');
   if (!box) return;
-  if (!ble.enabled) { box.innerHTML = ''; return; }
+  if (!ble.enabled) { box.innerHTML = ''; box.dataset.sig = ''; return; }
   const list = ble.available_scanners || [];
+  // The panel polls every few seconds. Repainting a scrollable list of sixteen
+  // on every poll threw the scroll position back to the top mid-click, which
+  // made picking one out of it a fight. Nothing here changes often, so only
+  // touch the DOM when the content actually differs.
+  const signature = JSON.stringify([
+    ble.broad_selection,
+    list.map(s => [s.source, s.name, s.chosen]),
+  ]);
+  if (box.dataset.sig === signature) return;
+  box.dataset.sig = signature;
+  // A scanner appearing for the first time does change the list, so keep the
+  // reader where they were instead of yanking them to the top.
+  const previous = box.querySelector('ul');
+  const scroll = previous ? previous.scrollTop : 0;
+
   if (!list.length) {
     box.innerHTML = `<p class="text-xs text-muted mb-4">${esc(t('presence_scanners_waiting'))}</p>`;
     return;
@@ -1377,6 +1394,8 @@ function renderScannerPicker(ble) {
         </div>
       </li>`).join('')}
     </ul>`;
+  const rebuilt = box.querySelector('ul');
+  if (rebuilt) rebuilt.scrollTop = scroll;
 }
 
 async function toggleScanner(source) {
@@ -1404,6 +1423,13 @@ function renderCalibration(cal) {
   }
   const list = document.getElementById('presence-devices');
   if (!list) return;
+  // Same reason as the scanner picker: repainting on every poll fights the
+  // scroll. The countdown above is updated regardless, so it keeps ticking.
+  const signature = JSON.stringify(cal.devices.slice(0, 40).map(
+    d => [d.address, d.scanners.map(s => [s.source, s.rssi])]));
+  if (list.dataset.sig === signature) return;
+  list.dataset.sig = signature;
+
   if (!cal.active && !cal.devices.length) { list.innerHTML = ''; return; }
   if (!cal.devices.length) {
     list.innerHTML = `<p class="text-xs text-muted">${esc(t('presence_listening'))}</p>`;
