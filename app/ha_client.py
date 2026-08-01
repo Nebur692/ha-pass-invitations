@@ -312,12 +312,13 @@ async def _handle_ble_event(event: dict) -> None:
     additions carry the fields we need.
     """
     for adv in event.get("add", []) or []:
-        uuids = adv.get("service_uuids") or []
-        if not uuids:
-            continue
         try:
             await presence.record_advertisement(
-                uuids, adv.get("source") or "", int(adv.get("rssi") or -127)
+                adv.get("service_uuids") or [],
+                adv.get("source") or "",
+                int(adv.get("rssi") or -127),
+                address=adv.get("address") or "",
+                local_name=adv.get("local_name"),
             )
         except Exception:
             logger.exception("Failed to record a Bluetooth advertisement")

@@ -14,6 +14,7 @@ from app.config import settings
 from app import geoip
 from app import ha_client
 from app import i18n
+from app import presence
 from app.models import (
     ACCESS_DOMAINS,
     ACCESS_KEYWORDS,
@@ -362,6 +363,57 @@ async def delete_token(token_id: str, _: str = Depends(require_admin)) -> dict:
 # ---------------------------------------------------------------------------
 # HA entity list proxy
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Presence proofs (see app/presence.py)
+# ---------------------------------------------------------------------------
+
+@router.get("/presence")
+async def presence_status(_: str = Depends(require_admin)) -> dict:
+    """What presence configuration is live, and is Bluetooth actually working.
+
+    Read-only: these come from the add-on options / environment, like every
+    other deployment setting, so the panel reports them rather than editing
+    them. What the panel *does* add is the calibration below, because the door
+    scanner's MAC cannot reasonably be guessed by hand.
+    """
+    ble_enabled = "ha_ble" in settings.presence_modes
+    return {
+        "modes": settings.presence_modes,
+        "policy": settings.presence_policy,
+        "bluetooth": {
+            "enabled": ble_enabled,
+            # Distinguishes "you turned it on but HA won't stream to us" from
+            # "you turned it on but never picked a door scanner".
+            "streaming": ha_client.is_ble_healthy() if ble_enabled else False,
+            "scanners": settings.ble_scanners,
+            "min_rssi": settings.ble_min_rssi,
+            "max_age_seconds": settings.ble_max_age_seconds,
+        },
+    }
+
+
+@router.post("/presence/calibration")
+async def presence_calibration_start(_: str = Depends(require_admin)) -> dict:
+    if "ha_ble" not in settings.presence_modes:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Enable the ha_ble presence mode first",
+        )
+    await presence.start_calibration()
+    return await presence.calibration_snapshot()
+
+
+@router.delete("/presence/calibration")
+async def presence_calibration_stop(_: str = Depends(require_admin)) -> dict:
+    await presence.stop_calibration()
+    return await presence.calibration_snapshot()
+
+
+@router.get("/presence/calibration")
+async def presence_calibration(_: str = Depends(require_admin)) -> dict:
+    return await presence.calibration_snapshot()
+
 
 @router.get("/ha/entities")
 async def ha_entities(_: str = Depends(require_admin)) -> list[dict]:

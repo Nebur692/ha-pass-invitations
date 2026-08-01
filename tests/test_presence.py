@@ -260,3 +260,36 @@ async def test_all_policy_requires_every_mode(sample_token):
 async def test_no_modes_configured_allows_everything(sample_token):
     settings.presence_modes = []
     await presence.check(sample_token["id"], "203.0.113.7")
+
+
+async def test_calibration_evicts_the_stalest_device_when_full():
+    """A real house pushed 152 distinct devices in 45 seconds, nearly all of
+    them one-off random MACs from passers-by. The buffer therefore fills long
+    before the admin reaches the door, and refusing new entries would drop the
+    one device that matters."""
+    await presence.start_calibration()
+    for i in range(presence.MAX_CALIBRATION_DEVICES):
+        await presence.record_advertisement([], "SCANNER", -90, address=f"PASSERBY:{i}")
+
+    await presence.record_advertisement(
+        [], "DOOR", -45, address="MY:GADGET", local_name="BLU Button1"
+    )
+
+    snapshot = await presence.calibration_snapshot()
+    addresses = {d["address"] for d in snapshot["devices"]}
+    assert "MY:GADGET" in addresses
+    assert len(snapshot["devices"]) <= presence.MAX_CALIBRATION_DEVICES
+    assert "PASSERBY:0" not in addresses  # the stalest one made way
+
+
+async def test_calibration_follows_a_device_across_scanners():
+    """Home Assistant only ever names the nearest scanner, so walking to the
+    door is what makes the door scanner show up — and win on signal."""
+    await presence.start_calibration()
+    await presence.record_advertisement([], "LIVING:ROOM", -80, address="MY:GADGET")
+    await presence.record_advertisement([], "HALLWAY", -48, address="MY:GADGET")
+
+    device = (await presence.calibration_snapshot())["devices"][0]
+
+    assert [s["source"] for s in device["scanners"]] == ["HALLWAY", "LIVING:ROOM"]
+    assert device["scanners"][0]["rssi"] == -48

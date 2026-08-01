@@ -135,17 +135,27 @@ def _rebuild_code_table(windows: tuple[int, ...]) -> None:
     _code_table_windows = windows
 
 
-async def record_advertisement(service_uuids: list[str], source: str, rssi: int) -> str | None:
+async def record_advertisement(
+    service_uuids: list[str],
+    source: str,
+    rssi: int,
+    address: str = "",
+    local_name: str | None = None,
+) -> str | None:
     """Note a Bluetooth advertisement relayed by Home Assistant.
 
     Cheap on the hot path: everything below the prefix check only runs when a
-    HAPass app is genuinely advertising nearby, which is rare.
+    HAPass app is genuinely advertising nearby, which is rare — the exception
+    being while the admin is calibrating, which is time-boxed.
     """
+    now = time.time()
+    if now < _calibration_until:
+        await _record_for_calibration(now, address, source, rssi, local_name)
+
     codes = [c for c in (extract_code(u) for u in service_uuids) if c]
     if not codes:
         return None
 
-    now = time.time()
     window = current_window(now)
     windows = tuple(range(window - CODE_WINDOW_SLACK, window + CODE_WINDOW_SLACK + 1))
 
@@ -162,6 +172,100 @@ async def record_advertisement(service_uuids: list[str], source: str, rssi: int)
     return token_id
 
 
+# ---------------------------------------------------------------------------
+# Calibration — "which scanner is the one at the door?"
+# ---------------------------------------------------------------------------
+# Scanners are identified by their Bluetooth MAC, and those cannot be mapped
+# back to Home Assistant device names (a Shelly advertises from a different MAC
+# than the one its integration registers). Rather than make the admin guess,
+# this records every advertisement for a few minutes so they can carry any
+# Bluetooth gadget to the door and read off which scanner hears it.
+#
+# Measured against a real installation: Home Assistant deduplicates, reporting
+# only the *closest* scanner per device — 152 devices over 45 seconds, not one
+# of them attributed to two scanners. Two things follow. Calibration works by
+# walking: carry the gadget to the door and `source` switches, so the entry
+# accumulates scanners and the door one wins on signal once you are there. And
+# the check in _check_ha_ble is stronger than it looks — matching `source`
+# means the door scanner is the nearest one to the guest, not merely one that
+# could hear them.
+#
+# Time-boxed on purpose: a busy house pushes hundreds of advertisements a
+# minute, which is fine for five minutes and pointless to hold forever.
+CALIBRATION_DURATION_SECONDS = 300
+# A house with people walking past produces well over a hundred one-off random
+# MACs a minute, so this fills fast and must evict rather than refuse — the
+# admin's own gadget arrives late, and dropping it would be the one failure
+# that matters.
+MAX_CALIBRATION_DEVICES = 400
+MAX_SCANNERS_PER_DEVICE = 20
+
+_calibration_until: float = 0.0
+_calibration: dict[str, dict] = {}
+
+
+async def start_calibration(duration: float = CALIBRATION_DURATION_SECONDS) -> float:
+    global _calibration_until
+    async with _lock:
+        _calibration.clear()
+        _calibration_until = time.time() + duration
+    return _calibration_until
+
+
+async def stop_calibration() -> None:
+    global _calibration_until
+    async with _lock:
+        _calibration_until = 0.0
+        _calibration.clear()
+
+
+async def _record_for_calibration(
+    now: float, address: str, source: str, rssi: int, local_name: str | None
+) -> None:
+    if not address or not source:
+        return
+    async with _lock:
+        device = _calibration.get(address)
+        if device is None:
+            while len(_calibration) >= MAX_CALIBRATION_DEVICES:
+                oldest = min(_calibration, key=lambda a: _calibration[a].get("last_seen", 0))
+                del _calibration[oldest]
+            device = {"address": address, "name": local_name, "scanners": {}}
+            _calibration[address] = device
+        if local_name and not device["name"]:
+            device["name"] = local_name
+        device["last_seen"] = now
+        scanners = device["scanners"]
+        seen = scanners.get(source)
+        if seen is None:
+            if len(scanners) >= MAX_SCANNERS_PER_DEVICE:
+                return
+            seen = scanners[source] = {"source": source, "rssi": rssi, "count": 0}
+        seen["count"] += 1
+        seen["rssi"] = max(seen["rssi"], rssi)  # best signal wins
+        seen["last_rssi"] = rssi
+
+
+async def calibration_snapshot() -> dict:
+    """Devices heard while calibrating, strongest-heard device first."""
+    now = time.time()
+    async with _lock:
+        devices = [
+            {
+                "address": d["address"],
+                "name": d["name"],
+                "last_seen": d.get("last_seen", 0),
+                "scanners": sorted(
+                    d["scanners"].values(), key=lambda s: s["rssi"], reverse=True
+                ),
+            }
+            for d in _calibration.values()
+        ]
+        seconds_left = max(0, int(_calibration_until - now))
+    devices.sort(key=lambda d: d["last_seen"], reverse=True)
+    return {"active": seconds_left > 0, "seconds_left": seconds_left, "devices": devices}
+
+
 async def recent_observations(token_id: str, max_age: float | None = None) -> list[dict]:
     """Sightings of a token's app, newest last. Used by checks and calibration."""
     cutoff = time.time() - (max_age if max_age is not None else settings.ble_max_age_seconds)
@@ -172,12 +276,15 @@ async def recent_observations(token_id: str, max_age: float | None = None) -> li
 async def reset_state() -> None:
     """Drop every cache. For tests, and after a WebSocket reconnect."""
     global _token_secrets, _token_secrets_at, _code_table, _code_table_windows
+    global _calibration_until
     async with _lock:
         _observations.clear()
         _token_secrets = []
         _token_secrets_at = 0.0
         _code_table = {}
         _code_table_windows = ()
+        _calibration_until = 0.0
+        _calibration.clear()
 
 
 # ---------------------------------------------------------------------------

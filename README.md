@@ -161,6 +161,41 @@ log retention, guest URL — see [DOCS.md](DOCS.md)), this fork adds:
 |---|---|---|
 | `TIMEZONE` | IANA timezone used to evaluate recurring weekly windows | `UTC` |
 | `LOCAL_NETWORK_CIDRS` | JSON array of CIDRs considered "home network" for access-domain commands (e.g. `["192.168.0.0/16"]`). Empty/unset = no restriction. | `[]` |
+| `PRESENCE_MODES` | JSON array of proofs accepted before an access-domain command runs: `["local_network"]`, `["ha_ble"]`, or both. | `["local_network"]` |
+| `PRESENCE_POLICY` | `any` (one proof is enough) or `all` (every mode must pass). | `any` |
+| `BLE_SCANNERS` | JSON array of the Bluetooth scanner MACs that count as "at the door". Required by `ha_ble`. | `[]` |
+| `BLE_MIN_RSSI` | Minimum signal strength (dBm) for a sighting to count. | `-70` |
+
+#### Bluetooth presence
+
+Requiring the guest to be on your WiFi means handing out the WiFi password. `ha_ble` replaces
+that: the Android app advertises over Bluetooth, the scanners already wired into Home Assistant
+hear it, and Home Assistant streams every advertisement to the add-on over the WebSocket
+connection it already holds.
+
+This matters for what the proof is worth. The adversary is the guest — they hold a valid link —
+so anything their own phone merely *asserts* is worthless, because they can patch the app and
+lie. Here the sighting is made by your hardware and delivered over your Home Assistant, exactly
+like the source IP is today.
+
+The advertised value is a single service UUID: a fixed prefix plus a code derived from the
+token's binding secret and the current 15-second window. It is deliberately not a static device
+id — that would be copyable, and a cheap board hidden by the door replaying it would open the
+lock forever. It also means a guest is not trackable by a fixed identifier between visits.
+
+Set the door scanner from **Presence & Bluetooth** in the admin panel: start listening and walk
+a Bluetooth gadget from another room to the door. Home Assistant only ever reports the nearest
+scanner, so the entry follows you and the door scanner ends up highlighted. Copy its MAC into
+`BLE_SCANNERS`.
+
+With `PRESENCE_POLICY=any` (the default) browser guests keep using the home network while app
+guests use Bluetooth. `ha_ble` fails closed when `BLE_SCANNERS` is empty: "heard by any scanner
+in the house" is not "at the door".
+
+**What this does not stop.** A guest with a rooted phone can drive the app and relay codes to a
+radio left by the door. No cryptography inside a phone can prove the *phone* is there — that is
+distance bounding, and it needs the physical layer. It is the same class of attack that defeats
+car keys, it takes premeditation and hardware, and whoever does it already holds a valid link.
 
 Per-token scheduling and access rules (`starts_at`, `recurrence`, `ip_allowlist`,
 `country_allowlist`) are set from the admin dashboard's Create Token form — there's nothing to
@@ -349,6 +384,43 @@ contacto, marca, retención de logs, URL de invitado — ver [DOCS.md](DOCS.md))
 |---|---|---|
 | `TIMEZONE` | Zona horaria IANA usada para evaluar las ventanas semanales recurrentes | `UTC` |
 | `LOCAL_NETWORK_CIDRS` | Array JSON de CIDRs considerados "red de casa" para los comandos de dominios de acceso (p.ej. `["192.168.0.0/16"]`). Vacío/sin definir = sin restricción. | `[]` |
+| `PRESENCE_MODES` | Array JSON de pruebas aceptadas antes de ejecutar un comando de dominio de acceso: `["local_network"]`, `["ha_ble"]`, o ambas. | `["local_network"]` |
+| `PRESENCE_POLICY` | `any` (basta con una prueba) o `all` (deben cumplirse todas). | `any` |
+| `BLE_SCANNERS` | Array JSON con las MAC de los escáneres Bluetooth que cuentan como "en la puerta". Obligatorio para `ha_ble`. | `[]` |
+| `BLE_MIN_RSSI` | Potencia mínima (dBm) para que una detección cuente. | `-70` |
+
+#### Presencia por Bluetooth
+
+Exigir que el invitado esté en tu WiFi obliga a darle la contraseña de la WiFi. `ha_ble` lo
+sustituye: la app Android emite por Bluetooth, los escáneres que ya tienes conectados a Home
+Assistant la oyen, y Home Assistant envía cada anuncio al complemento por el WebSocket que ya
+mantiene abierto.
+
+Esto es lo que hace que la prueba valga algo. El adversario es el invitado —tiene un enlace
+válido—, así que cualquier cosa que solo *afirme* su móvil no sirve, porque puede modificar la
+app y mentir. Aquí la detección la hace tu hardware y llega por tu Home Assistant, igual que hoy
+llega la IP de origen.
+
+Lo que se anuncia es un único UUID de servicio: un prefijo fijo más un código derivado del
+secreto de vinculación del token y de la ventana de 15 segundos actual. Deliberadamente no es un
+identificador estático — sería copiable, y bastaría una placa barata escondida junto a la puerta
+reemitiéndolo para abrir la cerradura para siempre. Además evita que el invitado sea rastreable
+por un identificador fijo entre visitas.
+
+El escáner de la puerta se elige desde **Presencia y Bluetooth** en el panel de administración:
+empieza a escuchar y lleva un cacharro Bluetooth desde otra habitación hasta la puerta. Home
+Assistant solo informa del escáner más cercano, así que la entrada te va siguiendo y el de la
+puerta acaba resaltado. Copia su MAC en `BLE_SCANNERS`.
+
+Con `PRESENCE_POLICY=any` (el valor por defecto) los invitados por navegador siguen usando la
+red de casa mientras los de la app usan Bluetooth. `ha_ble` falla cerrado si `BLE_SCANNERS` está
+vacío: "oído por cualquier escáner de la casa" no es "en la puerta".
+
+**Lo que esto no impide.** Un invitado con el móvil rooteado puede manejar la app y retransmitir
+códigos a una radio dejada junto a la puerta. Ninguna criptografía dentro de un teléfono puede
+demostrar que el *teléfono* está allí — eso es acotamiento de distancia y necesita la capa
+física. Es la misma clase de ataque que vence a las llaves de coche, exige premeditación y
+hardware, y quien lo hace ya tiene un enlace válido.
 
 La programación y las reglas de acceso por token (`starts_at`, `recurrence`, `ip_allowlist`,
 `country_allowlist`) se configuran desde el formulario de creación de token del panel de

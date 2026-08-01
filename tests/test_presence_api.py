@@ -182,3 +182,83 @@ async def test_assetlinks_describes_the_published_app(client):
         assert target["sha256_cert_fingerprints"] == ["AA:BB"]
     finally:
         settings.android_cert_fingerprints = []
+
+
+# ---------------------------------------------------------------------------
+# Admin: status and door calibration
+# ---------------------------------------------------------------------------
+
+async def test_presence_status_reports_the_live_configuration(client, admin_session):
+    settings.presence_modes = ["local_network", "ha_ble"]
+    settings.ble_scanners = [DOOR]
+    settings.ble_min_rssi = -65
+
+    body = (await client.get("/admin/presence", cookies=admin_session)).json()
+
+    assert body["modes"] == ["local_network", "ha_ble"]
+    assert body["bluetooth"]["enabled"] is True
+    assert body["bluetooth"]["scanners"] == [DOOR]
+    assert body["bluetooth"]["min_rssi"] == -65
+
+
+async def test_presence_status_requires_admin(client):
+    assert (await client.get("/admin/presence")).status_code == 401
+
+
+async def test_calibration_needs_bluetooth_enabled(client, admin_session):
+    settings.presence_modes = ["local_network"]
+
+    resp = await client.post("/admin/presence/calibration", cookies=admin_session)
+
+    assert resp.status_code == 409
+
+
+async def test_calibration_shows_which_scanner_hears_a_device_best(client, admin_session):
+    """The admin carries any Bluetooth gadget to the door and reads off the
+    winner — scanner MACs cannot be mapped to Home Assistant device names."""
+    settings.presence_modes = ["ha_ble"]
+    started = await client.post("/admin/presence/calibration", cookies=admin_session)
+    assert started.status_code == 200
+    assert started.json()["active"] is True
+
+    # Same gadget heard by two scanners; the hallway one is much closer.
+    await presence.record_advertisement(
+        [], "B8:D6:1A:89:52:36", -45, address="BL:UB:UT:00:00:01", local_name="BLU Button1"
+    )
+    await presence.record_advertisement(
+        [], "44:17:93:CE:E7:2E", -88, address="BL:UB:UT:00:00:01", local_name=None
+    )
+
+    body = (await client.get("/admin/presence/calibration", cookies=admin_session)).json()
+
+    device = next(d for d in body["devices"] if d["address"] == "BL:UB:UT:00:00:01")
+    assert device["name"] == "BLU Button1"
+    assert [s["source"] for s in device["scanners"]] == [
+        "B8:D6:1A:89:52:36",  # strongest first — this is the door
+        "44:17:93:CE:E7:2E",
+    ]
+    assert device["scanners"][0]["rssi"] == -45
+
+
+async def test_nothing_is_recorded_while_calibration_is_off(client, admin_session):
+    """A busy house pushes hundreds of advertisements a minute; holding them
+    forever would be pointless memory."""
+    await presence.record_advertisement(
+        [], "B8:D6:1A:89:52:36", -45, address="BL:UB:UT:00:00:01"
+    )
+
+    body = (await client.get("/admin/presence/calibration", cookies=admin_session)).json()
+
+    assert body["active"] is False
+    assert body["devices"] == []
+
+
+async def test_calibration_can_be_stopped(client, admin_session):
+    settings.presence_modes = ["ha_ble"]
+    await client.post("/admin/presence/calibration", cookies=admin_session)
+    await presence.record_advertisement([], "AA:AA", -45, address="BL:UB:UT:00:00:01")
+
+    stopped = await client.delete("/admin/presence/calibration", cookies=admin_session)
+
+    assert stopped.json()["active"] is False
+    assert stopped.json()["devices"] == []
