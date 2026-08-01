@@ -27,6 +27,10 @@ options:
   guest_url: ""
   timezone: "UTC"
   local_network_cidrs: ""
+  presence_modes: ""
+  presence_policy: "any"
+  ble_scanners: ""
+  ble_min_rssi: -70
 schema:
   admin_username: "str?"
   admin_password: "password?"
@@ -37,4 +41,8 @@ schema:
   guest_url: "str?"
   timezone: str
   local_network_cidrs: "str?"
+  presence_modes: "str?"
+  presence_policy: "list(any|all)?"
+  ble_scanners: "str?"
+  ble_min_rssi: "int(-120,0)?"
 image: "ghcr.io/nebur692/ha-pass-invitations"

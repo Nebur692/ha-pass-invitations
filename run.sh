@@ -18,6 +18,10 @@ mapping = {
     'guest_url': 'GUEST_URL',
     'timezone': 'TIMEZONE',
     'local_network_cidrs': 'LOCAL_NETWORK_CIDRS',
+    'presence_modes': 'PRESENCE_MODES',
+    'presence_policy': 'PRESENCE_POLICY',
+    'ble_scanners': 'BLE_SCANNERS',
+    'ble_min_rssi': 'BLE_MIN_RSSI',
 }
 for key, env in mapping.items():
     val = opts.get(key, '')

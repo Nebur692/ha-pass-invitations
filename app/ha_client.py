@@ -10,6 +10,7 @@ import websockets
 import websockets.exceptions
 
 from app import database as db
+from app import presence
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -226,6 +227,18 @@ _ws_task: asyncio.Task | None = None
 _msg_id = 1
 _ws_healthy: bool = False
 
+# Subscription ids on the single connection. state_changed has always been 1;
+# Bluetooth advertisements are a second subscription on the same socket.
+STATE_SUB_ID = 1
+BLE_SUB_ID = 2
+
+# bluetooth/subscribe_advertisements is Home Assistant's internal WebSocket
+# API, not a documented stable one. Verified working on 2026.7.2, but if a
+# future release renames or drops it we log once and carry on with
+# state_changed only — a guest must never be locked out because a presence
+# mode went missing.
+_ble_healthy: bool = False
+
 # H-5: Store background task refs to prevent GC and log errors
 _bg_tasks: set[asyncio.Task] = set()
 
@@ -257,6 +270,64 @@ async def _broadcast_reconnected() -> None:
             pass
 
 
+async def _subscribe_bluetooth(ws) -> None:
+    """Add the Bluetooth advertisement subscription to the live connection.
+
+    Never fatal: if this Home Assistant does not offer the command, the ha_ble
+    presence mode simply reports itself unavailable and the admin panel says so.
+    """
+    global _ble_healthy
+    _ble_healthy = False
+    if "ha_ble" not in settings.presence_modes:
+        return
+    try:
+        await ws.send(json.dumps({
+            "id": BLE_SUB_ID,
+            "type": "bluetooth/subscribe_advertisements",
+        }))
+        raw = await ws.recv()
+        msg = json.loads(raw)
+        if not msg.get("success"):
+            logger.error(
+                "HA rejected bluetooth/subscribe_advertisements (%s) — Bluetooth "
+                "presence is unavailable; guests can still use the home network.",
+                msg.get("error"),
+            )
+            return
+    except Exception:
+        logger.exception("Could not subscribe to HA Bluetooth advertisements")
+        return
+
+    # A reconnect means we missed advertisements while down; stale sightings
+    # must not count as "the guest is at the door right now".
+    await presence.reset_state()
+    _ble_healthy = True
+    logger.info("HA WebSocket subscribed to Bluetooth advertisements.")
+
+
+async def _handle_ble_event(event: dict) -> None:
+    """Feed relayed advertisements to the presence store.
+
+    Home Assistant sends batches shaped {"add": [...], "remove": [...]}; only
+    additions carry the fields we need.
+    """
+    for adv in event.get("add", []) or []:
+        uuids = adv.get("service_uuids") or []
+        if not uuids:
+            continue
+        try:
+            await presence.record_advertisement(
+                uuids, adv.get("source") or "", int(adv.get("rssi") or -127)
+            )
+        except Exception:
+            logger.exception("Failed to record a Bluetooth advertisement")
+
+
+def is_ble_healthy() -> bool:
+    """Whether Bluetooth advertisements are actually streaming from HA."""
+    return _ble_healthy and is_ws_healthy()
+
+
 async def _ws_listener() -> None:
     global _msg_id, _ws_healthy
     ws_url = _build_ws_url()
@@ -283,7 +354,7 @@ async def _ws_listener() -> None:
                     return  # Permanent — bad token; don't retry
 
                 # Phase 2: subscribe to state_changed events
-                _msg_id = 1
+                _msg_id = STATE_SUB_ID
                 await ws.send(json.dumps({
                     "id": _msg_id,
                     "type": "subscribe_events",
@@ -300,6 +371,8 @@ async def _ws_listener() -> None:
                 _ws_healthy = True
                 logger.info("HA WebSocket subscribed to state_changed events.")
 
+                await _subscribe_bluetooth(ws)
+
                 # Broadcast reconnected event for SSE clients to refetch
                 await _broadcast_reconnected()
 
@@ -311,6 +384,12 @@ async def _ws_listener() -> None:
                         continue
 
                     if msg.get("type") != "event":
+                        continue
+
+                    if msg.get("id") == BLE_SUB_ID:
+                        task = asyncio.create_task(_handle_ble_event(msg.get("event", {})))
+                        _bg_tasks.add(task)
+                        task.add_done_callback(_task_done)
                         continue
 
                     event_data = msg.get("event", {}).get("data", {})

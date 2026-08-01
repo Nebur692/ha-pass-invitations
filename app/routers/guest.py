@@ -28,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import database as db
 from app import ha_client
+from app import presence
 from app.config import settings
 from app.context import base_context
 from app import i18n
@@ -118,20 +119,25 @@ def _enforce_ip_allowlist(row, request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
 
 
-def _enforce_local_network_for_domain(entity_domain: str, request: Request) -> None:
+async def _enforce_presence_for_domain(
+    entity_domain: str, request: Request, token_id: str
+) -> None:
     """Fixed security policy (not per-token): commands on LOCAL_ONLY_DOMAINS
     (locks, buttons, covers — anything that opens something physical) require
-    the request to originate from the configured home-network CIDRs. Lights
-    and other domains are never restricted this way. Viewing the guest link
-    itself (page/state/stream) is also never restricted this way — only
-    command execution on these specific domains."""
-    if entity_domain not in LOCAL_ONLY_DOMAINS or not settings.local_network_cidrs:
+    a server-verified proof that the guest is actually here. Lights and other
+    domains are never restricted this way. Viewing the guest link itself
+    (page/state/stream) is also never restricted this way — only command
+    execution on these specific domains.
+
+    Which proofs count is configurable; see app/presence.py."""
+    if entity_domain not in LOCAL_ONLY_DOMAINS:
         return
-    if not _ip_in_cidrs(_client_ip(request), settings.local_network_cidrs):
+    try:
+        await presence.check(token_id, _client_ip(request))
+    except presence.PresenceDenied as denied:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This action requires being connected to the home network",
-        )
+            status_code=status.HTTP_403_FORBIDDEN, detail=denied.detail
+        ) from denied
 
 
 # ---------------------------------------------------------------------------
@@ -208,15 +214,27 @@ def _binding_cookie_name(slug: str) -> str:
     return f"hp_bind_{slug}"
 
 
+# The Android app has no cookie jar, and storing the secret in the OS keystore
+# is stronger than a cookie anyway — so it presents the same secret in a header.
+BINDING_HEADER = "X-HAPass-Binding"
+
+
+def _incoming_binding(request: Request, slug: str) -> str | None:
+    return request.headers.get(BINDING_HEADER) or request.cookies.get(
+        _binding_cookie_name(slug)
+    )
+
+
 async def _verify_or_claim_binding(row, request: Request) -> str | None:
-    """Enforces that a guest link can only ever be used from the browser
-    that first opened it. Returns a secret the caller must set as a cookie
-    if this request just claimed the token; returns None if verification
-    passed against an already-bound token (nothing new to set). Raises 403
-    if bound to a different device.
+    """Enforces that a guest link can only ever be used from the device
+    that first opened it. Returns a secret the caller must hand back (as a
+    cookie for browsers, in the response body at enrollment for the app) if
+    this request just claimed the token; returns None if verification passed
+    against an already-bound token (nothing new to set). Raises 403 if bound
+    to a different device.
     """
     slug = row["slug"]
-    incoming = request.cookies.get(_binding_cookie_name(slug))
+    incoming = _incoming_binding(request, slug)
 
     if row["bound_secret"] is None:
         secret = secrets.token_hex(32)
@@ -472,6 +490,44 @@ async def guest_state(request: Request, response: Response, slug: str = Path(max
 
 
 # ---------------------------------------------------------------------------
+# Native app enrollment
+# ---------------------------------------------------------------------------
+
+@router.post("/{slug}/enroll")
+async def guest_enroll(request: Request, slug: str = Path(max_length=64)):
+    """Hand a native app everything it needs to act as this guest's device.
+
+    Claims the same single-device binding a browser would, but returns the
+    secret in the body instead of a cookie. A link already opened in a browser
+    is therefore already bound and will be refused here — recovering from that
+    is what the admin panel's "Unbind" button is for.
+    """
+    row = await _validate_token(slug, request)
+    new_binding_secret = await _verify_or_claim_binding(row, request)
+
+    ble_enabled = "ha_ble" in settings.presence_modes
+    body = {
+        "slug": slug,
+        "app_name": settings.app_name,
+        "language": i18n.detect_lang(
+            request.headers.get("accept-language", ""), i18n.GUEST_SUPPORTED_LANGS
+        ),
+        "presence": {
+            "bluetooth": ble_enabled,
+            # The app rebuilds the advertised UUID as prefix + HMAC(secret,
+            # window); see app/presence.py for the derivation it must mirror.
+            "uuid_prefix": presence.UUID_PREFIX if ble_enabled else None,
+            "window_seconds": presence.CODE_WINDOW_SECONDS,
+        },
+    }
+    # Only present the first time: afterwards the app already holds it, and
+    # re-sending it on every call would put it back in reach of a copied link.
+    if new_binding_secret:
+        body["binding_secret"] = new_binding_secret
+    return body
+
+
+# ---------------------------------------------------------------------------
 # SSE stream
 # ---------------------------------------------------------------------------
 
@@ -552,7 +608,7 @@ async def guest_command(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Entity not in allowlist")
 
     entity_domain = body.entity_id.split(".")[0]
-    _enforce_local_network_for_domain(entity_domain, request)
+    await _enforce_presence_for_domain(entity_domain, request, token_id)
 
     if "." in body.service:
         svc_domain, svc_name = body.service.split(".", 1)

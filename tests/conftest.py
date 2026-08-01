@@ -95,6 +95,30 @@ def _reset_login_limiter():
     _login_limiter._windows.clear()
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _reset_presence():
+    """Clear app.presence's module-level caches between tests.
+
+    It memoises the bound-token list for 60s and the rotating-code table per
+    window, so without this a token created in one test stays "known" in the
+    next one.
+    """
+    from app import presence
+
+    await presence.reset_state()
+    original = {
+        "presence_modes": list(settings.presence_modes),
+        "presence_policy": settings.presence_policy,
+        "ble_scanners": list(settings.ble_scanners),
+        "ble_min_rssi": settings.ble_min_rssi,
+        "local_network_cidrs": list(settings.local_network_cidrs),
+    }
+    yield
+    for key, value in original.items():
+        setattr(settings, key, value)
+    await presence.reset_state()
+
+
 @pytest_asyncio.fixture
 async def client(test_db, mock_ha_client):
     """httpx.AsyncClient using ASGITransport — bypasses lifespan.

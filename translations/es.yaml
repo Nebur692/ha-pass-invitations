@@ -26,3 +26,15 @@ configuration:
   local_network_cidrs:
     name: CIDRs de la red de casa
     description: "Array JSON de CIDRs considerados 'red de casa' (p.ej. [\"192.168.0.0/16\"]). Si se configura, los invitados solo podrán activar cerraduras/toldos/botones estando conectados a una de estas redes. Déjalo vacío para no restringir."
+  presence_modes:
+    name: Modos de presencia
+    description: "Array JSON de pruebas aceptadas antes de abrir cerraduras/toldos/botones: [\"local_network\"] (por IP de origen, el comportamiento de siempre), [\"ha_ble\"] (la app Android emite por Bluetooth y los escáneres de Home Assistant la detectan) o ambas. Déjalo vacío para mantener solo local_network."
+  presence_policy:
+    name: Política de presencia
+    description: "'any': basta con que se cumpla una de las pruebas — recomendado, deja que los invitados por navegador sigan usando la red de casa mientras los de la app usan Bluetooth. 'all': deben cumplirse todas."
+  ble_scanners:
+    name: Escáneres de la puerta
+    description: "Array JSON con las MAC de los escáneres Bluetooth de Home Assistant que cuentan como 'en la puerta' (p.ej. [\"B8:D6:1A:89:52:36\"]). Obligatorio si usas ha_ble: sin esto valdría cualquier escáner de la casa, que no demuestra estar en la puerta, así que el modo se desactiva."
+  ble_min_rssi:
+    name: Señal mínima
+    description: "Potencia mínima (dBm) para aceptar una detección; -70 es un buen punto de partida. Menos negativo = hay que estar más cerca."

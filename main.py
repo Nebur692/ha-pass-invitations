@@ -6,7 +6,7 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -128,6 +128,29 @@ async def security_headers(request: Request, call_next):
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+async def android_asset_links():
+    """Digital Asset Links, so an https guest link opens the Android app.
+
+    Android 12+ refuses to open unverified https links in an app, and
+    verification requires this file on the domain the link points at. Serving
+    it from the app server itself is what keeps the whole thing generic: no
+    installation has to touch its own web server.
+    """
+    if not settings.android_cert_fingerprints:
+        raise HTTPException(status_code=404)
+    return JSONResponse([{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+            "namespace": "android_app",
+            "package_name": settings.android_package,
+            "sha256_cert_fingerprints": settings.android_cert_fingerprints,
+        },
+    }])
+
+
 app.include_router(admin.router)
 app.include_router(guest.router)
 

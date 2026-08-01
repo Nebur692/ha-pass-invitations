@@ -156,6 +156,25 @@ async def list_tokens() -> list[aiosqlite.Row]:
         return await cur.fetchall()
 
 
+async def list_bound_token_secrets() -> list[tuple[str, str]]:
+    """(id, bound_secret) of every usable token that has claimed a device.
+
+    Feeds the rotating-code table in app/presence.py, so it deliberately skips
+    tokens that could never legitimately open anything: revoked, expired, or
+    never opened on a device.
+    """
+    db = await get_db()
+    async with db.execute(
+        """SELECT id, bound_secret FROM tokens
+           WHERE bound_secret IS NOT NULL
+             AND revoked = 0
+             AND expires_at > ?""",
+        (int(time.time()),),
+    ) as cur:
+        rows = await cur.fetchall()
+    return [(r["id"], r["bound_secret"]) for r in rows]
+
+
 async def get_token_entities(token_id: str) -> list[str]:
     db = await get_db()
     async with db.execute(

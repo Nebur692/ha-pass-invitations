@@ -26,3 +26,15 @@ configuration:
   local_network_cidrs:
     name: Home Network CIDRs
     description: "JSON array of CIDRs considered 'home network' (e.g. [\"192.168.0.0/16\"]). When set, guests can only trigger locks/covers/buttons while connected to one of these ranges. Leave empty for no restriction."
+  presence_modes:
+    name: Presence modes
+    description: "JSON array of proofs accepted before opening locks/covers/buttons: [\"local_network\"] (by source IP, the long-standing behaviour), [\"ha_ble\"] (the Android app advertises over Bluetooth and Home Assistant's scanners detect it), or both. Leave empty to keep local_network only."
+  presence_policy:
+    name: Presence policy
+    description: "'any': one satisfied proof is enough — recommended, so browser guests keep using the home network while app guests use Bluetooth. 'all': every configured mode must pass."
+  ble_scanners:
+    name: Door scanners
+    description: "JSON array of the MAC addresses of the Home Assistant Bluetooth scanners that count as 'at the door' (e.g. [\"B8:D6:1A:89:52:36\"]). Required for ha_ble: without it any scanner in the house would do, which is not proof of being at the door, so the mode stays off."
+  ble_min_rssi:
+    name: Minimum signal
+    description: "Minimum signal strength (dBm) for a sighting to count; -70 is a good starting point. Less negative = must be closer."
