@@ -1414,6 +1414,7 @@ document.addEventListener('keydown', e => {
       'edit-modal': closeEditModal,
       'create-modal': closeCreateModal,
       'profile-modal': closeProfileModal,
+      'presence-modal': closePresenceModal,
     };
     for (const [id, closer] of Object.entries(closers)) {
       const m = document.getElementById(id);
@@ -1493,7 +1494,7 @@ document.addEventListener('click', e => {
 
     // Close any modal
     case 'close-modal': {
-      const modalMap = { create: closeCreateModal, edit: closeEditModal, extend: closeExtendModal, confirm: closeConfirmModal, qr: closeQrModal, profile: closeProfileModal };
+      const modalMap = { create: closeCreateModal, edit: closeEditModal, extend: closeExtendModal, confirm: closeConfirmModal, qr: closeQrModal, profile: closeProfileModal, presence: closePresenceModal };
       const closer = modalMap[el.dataset.modal];
       if (closer) closer();
       break;
