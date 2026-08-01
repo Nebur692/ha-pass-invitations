@@ -1157,7 +1157,10 @@ const SETTINGS_FIELDS = [
   { key: 'local_network_cidrs',       type: 'list',   section: 'access'  },
   { key: 'presence_modes',            type: 'modes',  section: 'presence' },
   { key: 'presence_policy',           type: 'policy', section: 'presence' },
-  { key: 'ble_scanners',              type: 'list',   section: 'presence' },
+  // Not a text field: typing a scanner's MAC by hand is error-prone and the
+  // presence panel already lists them by name with live data. Offering both a
+  // raw box here and a picker there is what confused the first person to use it.
+  { key: 'ble_scanners',              type: 'scanners', section: 'presence' },
   { key: 'ble_min_rssi',              type: 'number', section: 'presence' },
   { key: 'ble_max_age_seconds',       type: 'number', section: 'presence' },
 ];
@@ -1173,6 +1176,16 @@ function settingsInput(f, entry) {
       <span class="font-mono text-xs">${m}</span>
       <span class="text-xs text-muted">${esc(t('set_mode_' + m))}</span>
     </label>`).join('');
+  }
+  if (f.type === 'scanners') {
+    const n = (v || []).length;
+    return `<div class="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark">
+      <span class="text-sm truncate ${n ? '' : 'text-muted'}">${esc(n ? t('set_scanners_count', { n }) : t('presence_no_scanner'))}</span>
+      <button data-action="choose-scanners"
+        class="px-3 py-1.5 text-xs font-display font-semibold rounded-lg border border-accent text-accent hover:bg-accent hover:text-white transition-colors flex-shrink-0">
+        ${esc(t('set_scanners_choose'))}
+      </button>
+    </div>`;
   }
   if (f.type === 'policy') {
     return `<select id="${id}" class="w-full px-3 py-2 rounded-xl border border-border-light dark:border-border-dark bg-bg-light dark:bg-bg-dark text-sm outline-none focus:border-primary cursor-pointer">
@@ -1213,6 +1226,7 @@ function collectSettings() {
     const entry = settingsState[f.key];
     if (!entry) continue;
     let value;
+    if (f.type === 'scanners') continue;
     if (f.type === 'modes') {
       value = ['local_network', 'ha_ble'].filter(m => document.getElementById(`set-${f.key}-${m}`).checked);
     } else {
@@ -1693,6 +1707,7 @@ document.addEventListener('click', e => {
     case 'toggle-activity': toggleActivity(); break;
 
     // Profile
+    case 'choose-scanners': closeSettingsModal(); openPresenceModal(); break;
     case 'open-settings-modal': openSettingsModal(); break;
     case 'submit-settings': submitSettings(); break;
     case 'reset-setting': resetSetting(el.dataset.key); break;
