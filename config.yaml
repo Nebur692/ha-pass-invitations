@@ -1,5 +1,5 @@
 name: HAPass Invitations
-version: "1.4.2"
+version: "1.5.0"
 slug: ha-pass-invitations
 description: Shareable, schedulable guest links for Home Assistant — advance/recurring access windows, local-network-only commands, and single-device link binding
 url: "https://github.com/Nebur692/ha-pass-invitations"
