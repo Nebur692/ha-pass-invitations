@@ -297,3 +297,48 @@ async def test_calibration_can_be_stopped(client, admin_session):
 
     assert stopped.json()["active"] is False
     assert stopped.json()["devices"] == []
+
+
+async def test_scanners_can_be_picked_from_a_named_list(client, admin_session, mock_ha_client):
+    """The admin knows where their own hardware is, so listing scanners by name
+    beats making them walk a Bluetooth gadget around to discover it."""
+    settings.presence_modes = ["ha_ble"]
+    settings.ble_scanners = ["44:17:93:AD:0C:7E"]
+    mock_ha_client["get_device_mac_names"].return_value = {
+        "44:17:93:AD:0C:7C": "Persiana recibidor",
+        "84:FC:E6:36:8C:F4": "Enchufe-Trastero",
+    }
+    # Scanners announce themselves simply by relaying traffic.
+    await presence.record_advertisement([], "84:FC:E6:36:8C:F6", -80, address="AA:01")
+    for _ in range(3):
+        await presence.record_advertisement([], "44:17:93:AD:0C:7E", -60, address="AA:02")
+
+    body = (await client.get("/admin/presence", cookies=admin_session)).json()
+    available = body["bluetooth"]["available_scanners"]
+
+    # Sorted by name, not by how much traffic each relays: the admin arrives
+    # knowing which one they want and is scanning the list for a word.
+    assert [s["name"] for s in available] == ["Enchufe-Trastero", "Persiana recibidor"]
+    chosen = {s["name"]: s["chosen"] for s in available}
+    assert chosen == {"Persiana recibidor": True, "Enchufe-Trastero": False}
+
+
+async def test_unnamed_scanners_sort_last(client, admin_session, mock_ha_client):
+    settings.presence_modes = ["ha_ble"]
+    mock_ha_client["get_device_mac_names"].return_value = {"11:11:11:11:11:11": "Zzz last by name"}
+    await presence.record_advertisement([], "11:11:11:11:11:11", -60, address="AA:01")
+    await presence.record_advertisement([], "99:99:99:99:99:99", -60, address="AA:02")
+
+    body = (await client.get("/admin/presence", cookies=admin_session)).json()
+
+    assert [s["name"] for s in body["bluetooth"]["available_scanners"]] == \
+        ["Zzz last by name", None]
+
+
+async def test_scanners_are_not_listed_while_bluetooth_is_off(client, admin_session):
+    settings.presence_modes = ["local_network"]
+    await presence.record_advertisement([], "44:17:93:AD:0C:7E", -60, address="AA:02")
+
+    body = (await client.get("/admin/presence", cookies=admin_session)).json()
+
+    assert body["bluetooth"]["available_scanners"] == []

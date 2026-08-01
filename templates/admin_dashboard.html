@@ -416,6 +416,7 @@
     </div>
     <p class="text-xs text-muted mb-4">{{ t('presence_intro') }}</p>
     <div id="presence-status" class="mb-4"></div>
+    <div id="presence-scanners"></div>
     <div id="presence-calibration"></div>
     <div class="flex justify-end gap-2 mt-5 pt-4 border-t border-border-light dark:border-border-dark">
       <button data-action="close-modal" data-modal="presence" class="px-4 py-2 text-sm font-display font-medium rounded-xl border border-border-light dark:border-border-dark hover:bg-soot/5 dark:hover:bg-white/5 transition-colors">{{ t('close') }}</button>
@@ -1284,6 +1285,7 @@ function closeSettingsModal() { closeModal('settings-modal'); }
 // so the only sane way to find the one at the door is to carry a Bluetooth
 // gadget there and watch which scanner hears it loudest.
 let presenceTimer = null;
+let presenceScanners = [];
 
 function presenceRow(label, value, ok) {
   const tone = ok === undefined ? 'text-muted'
@@ -1299,6 +1301,7 @@ async function refreshPresenceStatus() {
   if (!r.ok) return;
   const p = await r.json();
   const ble = p.bluetooth;
+  presenceScanners = ble.scanners || [];
   const scanners = ble.scanners.length
     ? ble.scanners.map(s => s.name ? `${s.name}${s.approximate ? '?' : ''}` : s.source).join(', ')
     : t('presence_no_scanner');
@@ -1310,6 +1313,8 @@ async function refreshPresenceStatus() {
         ble.streaming ? t('presence_streaming_ok') : t('presence_streaming_ko'), ble.streaming) : '') +
     (ble.enabled ? presenceRow(t('presence_door_scanners'), scanners, ble.scanners.length > 0) : '') +
     (ble.enabled ? presenceRow(t('presence_min_rssi'), `${ble.min_rssi} dBm`) : '');
+
+  renderScannerPicker(ble);
 
   const box = document.getElementById('presence-calibration');
   if (!ble.enabled) {
@@ -1327,6 +1332,49 @@ async function refreshPresenceStatus() {
       <div id="presence-devices" class="mt-3"></div>`;
   }
   renderCalibration(await (await fetch(`${BASE}/admin/presence/calibration`)).json());
+}
+
+// Picking the door scanner from a named list, because the admin already knows
+// where their own hardware is. Walking around with a Bluetooth gadget is only
+// worth it for tuning the signal threshold, which is further down.
+function renderScannerPicker(ble) {
+  const box = document.getElementById('presence-scanners');
+  if (!box) return;
+  if (!ble.enabled) { box.innerHTML = ''; return; }
+  const list = ble.available_scanners || [];
+  if (!list.length) {
+    box.innerHTML = `<p class="text-xs text-muted mb-4">${esc(t('presence_scanners_waiting'))}</p>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="text-[11px] font-mono font-bold uppercase tracking-wider text-muted mb-1.5">${esc(t('presence_scanners_title'))}</div>
+    <p class="text-xs text-muted mb-2">${esc(t('presence_scanners_hint'))}</p>
+    <ul class="max-h-56 overflow-y-auto border border-border-light dark:border-border-dark rounded-xl list-none mb-4" role="list">
+      ${list.map(s => `<li class="flex items-center gap-3 px-3 py-2.5 border-b border-border-light dark:border-border-dark last:border-b-0 hover:bg-soot/[0.03] dark:hover:bg-white/5 cursor-pointer transition-colors"
+        data-action="toggle-scanner" data-source="${esc(s.source)}" role="button" tabindex="0">
+        <span aria-hidden="true" class="material-symbols-outlined text-lg flex-shrink-0 ${s.chosen ? 'text-accent' : 'text-muted'}">${s.chosen ? 'check_circle' : 'radio_button_unchecked'}</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium truncate"${s.name && s.approximate ? ` title="${esc(t('presence_name_guess_title'))}"` : ''}>${esc(s.name || s.source)}</div>
+          <div class="text-[11px] text-muted font-mono truncate">${esc(s.source)}</div>
+        </div>
+      </li>`).join('')}
+    </ul>`;
+}
+
+async function toggleScanner(source) {
+  const current = (presenceScanners || []).map(s => s.source.toUpperCase());
+  const key = source.toUpperCase();
+  const next = current.includes(key)
+    ? current.filter(s => s !== key)
+    : [...current, key];
+  const r = await fetch(`${BASE}/admin/settings`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ble_scanners: next }),
+  });
+  if (!r.ok) { showToast(t('toast_error_generic'), 'error'); return; }
+  showToast(t('toast_door_scanner_set'), 'success');
+  refreshPresenceStatus();
 }
 
 function renderCalibration(cal) {
@@ -1645,6 +1693,7 @@ document.addEventListener('click', e => {
     case 'submit-settings': submitSettings(); break;
     case 'reset-setting': resetSetting(el.dataset.key); break;
     case 'use-scanner': useScanner(el.dataset.source); break;
+    case 'toggle-scanner': toggleScanner(el.dataset.source); break;
     case 'open-presence-modal': openPresenceModal(); break;
     case 'toggle-calibration': toggleCalibration(); break;
     case 'open-profile-modal': openProfileModal(); break;

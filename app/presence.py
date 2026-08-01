@@ -149,6 +149,8 @@ async def record_advertisement(
     being while the admin is calibrating, which is time-boxed.
     """
     now = time.time()
+    if source:
+        await _note_scanner(now, source)
     if now < _calibration_until:
         await _record_for_calibration(now, address, source, rssi, local_name)
 
@@ -173,7 +175,44 @@ async def record_advertisement(
 
 
 # ---------------------------------------------------------------------------
-# Calibration — "which scanner is the one at the door?"
+# Which scanners exist
+# ---------------------------------------------------------------------------
+# The admin already knows where their own hardware is — "Persiana recibidor" is
+# by the front door and no amount of measuring will tell them better. So the
+# primary way to pick a door scanner is simply to list the scanners by name and
+# let them choose. Home Assistant has no API for "list your Bluetooth
+# scanners", but every relayed advertisement names the one that heard it, so
+# the set builds itself from traffic that is already flowing.
+#
+# Costs one dict write per advertisement against a handful of keys, so unlike
+# the per-device calibration buffer this can stay on permanently.
+MAX_KNOWN_SCANNERS = 64
+
+_scanners: dict[str, dict] = {}
+
+
+async def _note_scanner(now: float, source: str) -> None:
+    key = source.upper()
+    async with _lock:
+        entry = _scanners.get(key)
+        if entry is None:
+            if len(_scanners) >= MAX_KNOWN_SCANNERS:
+                return
+            entry = _scanners[key] = {"source": key, "count": 0, "first_seen": now}
+        entry["count"] += 1
+        entry["last_seen"] = now
+
+
+async def known_scanners() -> list[dict]:
+    """Scanners heard relaying advertisements, busiest first."""
+    async with _lock:
+        found = [dict(entry) for entry in _scanners.values()]
+    found.sort(key=lambda s: s["count"], reverse=True)
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Calibration — measuring the signal threshold
 # ---------------------------------------------------------------------------
 # Scanners are identified by their Bluetooth MAC, and those cannot be mapped
 # back to Home Assistant device names (a Shelly advertises from a different MAC
@@ -324,6 +363,7 @@ async def reset_state() -> None:
         _code_table_windows = ()
         _calibration_until = 0.0
         _calibration.clear()
+        _scanners.clear()
 
 
 # ---------------------------------------------------------------------------

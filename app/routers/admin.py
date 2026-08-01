@@ -420,11 +420,26 @@ async def presence_status(_: str = Depends(require_admin)) -> dict:
     """
     ble_enabled = "ha_ble" in settings.presence_modes
     names = await _device_names()
+    chosen = {s.upper() for s in settings.ble_scanners}
+    available = []
+    if ble_enabled:
+        for scanner in await presence.known_scanners():
+            entry = _named_scanner(scanner["source"], names)
+            entry["count"] = scanner["count"]
+            entry["chosen"] = scanner["source"].upper() in chosen
+            available.append(entry)
+        # By name, because the admin arrives knowing which one they want and is
+        # scanning for a word. Busiest-first would be sorting by something they
+        # cannot see. Unnamed scanners go last, where they are least useful.
+        available.sort(key=lambda s: (s["name"] is None, (s["name"] or s["source"]).lower()))
     return {
         "modes": settings.presence_modes,
         "policy": settings.presence_policy,
         "bluetooth": {
             "enabled": ble_enabled,
+            # The admin knows where their own hardware is, so picking the door
+            # scanner from a named list beats making them walk around measuring.
+            "available_scanners": available,
             # Distinguishes "you turned it on but HA won't stream to us" from
             # "you turned it on but never picked a door scanner".
             "streaming": ha_client.is_ble_healthy() if ble_enabled else False,
