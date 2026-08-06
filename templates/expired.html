@@ -17,7 +17,10 @@
   </noscript>
   <div>
     <div class="w-20 h-20 rounded-full bg-soot/5 dark:bg-white/5 flex items-center justify-center mx-auto mb-6">
-      <span aria-hidden="true" class="material-symbols-outlined text-4xl text-muted">{{ 'link_off' if reason == 'used_up' else 'timer_off' }}</span>
+      {# A stopwatch on the "another device" page would imply the very expiry
+         problem that message exists to rule out. #}
+      {% set icon = {'used_up': 'link_off', 'another_device': 'phonelink_off'}.get(reason, 'timer_off') %}
+      <span aria-hidden="true" class="material-symbols-outlined text-4xl text-muted">{{ icon }}</span>
     </div>
     <h1 class="text-2xl font-serif tracking-tight mb-2">{{ t('title_' + (reason or 'expired')) }}</h1>
     <p class="text-muted text-base leading-relaxed max-w-xs mx-auto">{{ t('body_' + (reason or 'expired')) }} {{ contact_message }}</p>
