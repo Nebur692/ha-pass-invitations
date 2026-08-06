@@ -234,6 +234,7 @@ class TokenResponse(BaseModel):
     starts_at: int | None = None
     recurrence: dict | None = None
     bound_claimed_at: int | None = None
+    bound_device: str | None = None
     max_uses: int | None = None
     use_count: int = 0
 

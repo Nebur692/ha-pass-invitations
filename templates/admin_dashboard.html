@@ -603,16 +603,18 @@ function relativeTime(ts) {
   const diff = ts - now;
   if (diff < 0) {
     const ago = Math.abs(diff);
-    if (ago < 60) return 'just now';
-    if (ago < 3600) return `${Math.floor(ago/60)}m ago`;
-    if (ago < 86400) return `${Math.floor(ago/3600)}h ago`;
-    return `${Math.floor(ago/86400)}d ago`;
+    if (ago < 60) return t('rel_just_now');
+    if (ago < 3600) return t('rel_minutes_ago', { n: Math.floor(ago/60) });
+    if (ago < 86400) return t('rel_hours_ago', { n: Math.floor(ago/3600) });
+    return t('rel_days_ago', { n: Math.floor(ago/86400) });
   }
-  if (diff < 60) return 'in <1m';
-  if (diff < 3600) return `in ${Math.floor(diff/60)}m`;
-  if (diff < 86400) return `in ${Math.floor(diff/3600)}h`;
-  return `in ${Math.floor(diff/86400)}d`;
+  if (diff < 60) return t('rel_in_under_minute');
+  if (diff < 3600) return t('rel_in_minutes', { n: Math.floor(diff/60) });
+  if (diff < 86400) return t('rel_in_hours', { n: Math.floor(diff/3600) });
+  return t('rel_in_days', { n: Math.floor(diff/86400) });
 }
+
+function isPast(ts) { return ts < Date.now() / 1000; }
 
 function updateStats() {
   let active = 0, expired = 0;
@@ -737,11 +739,15 @@ function renderTokens() {
           </div>
           ${tk.starts_at ? `<div class="flex items-center gap-2 text-muted col-span-2">
             <span aria-hidden="true" class="material-symbols-outlined text-base">schedule</span>
-            <span>${t('starts_label', { t: relativeTime(tk.starts_at) })}${tk.recurrence ? ` &middot; ${WEEKDAY_KEYS.filter((_, i) => tk.recurrence.weekdays.includes(i)).map(k => t(k)).join(', ')} ${esc(tk.recurrence.start)}–${esc(tk.recurrence.end)}` : ''}</span>
+            <span>${t(isPast(tk.starts_at) ? 'started_label' : 'starts_label', { t: relativeTime(tk.starts_at) })}${tk.recurrence ? ` &middot; ${WEEKDAY_KEYS.filter((_, i) => tk.recurrence.weekdays.includes(i)).map(k => t(k)).join(', ')} ${esc(tk.recurrence.start)}–${esc(tk.recurrence.end)}` : ''}</span>
           </div>` : ''}
           <div class="flex items-center gap-2 text-muted col-span-2">
             <span aria-hidden="true" class="material-symbols-outlined text-base">${tk.bound_claimed_at ? 'phonelink_lock' : 'phonelink'}</span>
-            <span>${tk.bound_claimed_at ? t('linked_since', { t: relativeTime(tk.bound_claimed_at) }) : t('not_claimed')}</span>
+            <span>${tk.bound_claimed_at
+              ? (tk.bound_device
+                  ? t('linked_since_device', { t: relativeTime(tk.bound_claimed_at), d: esc(tk.bound_device) })
+                  : t('linked_since', { t: relativeTime(tk.bound_claimed_at) }))
+              : t('not_claimed')}</span>
           </div>
         </div>
 

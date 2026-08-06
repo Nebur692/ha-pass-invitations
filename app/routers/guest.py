@@ -252,7 +252,9 @@ async def _verify_or_claim_binding(row, request: Request, claim: bool = True) ->
         if not claim:
             return None
         secret = secrets.token_hex(32)
-        await db.claim_token_binding(row["id"], secret, int(time.time()))
+        await db.claim_token_binding(
+            row["id"], secret, int(time.time()), request.headers.get("User-Agent")
+        )
         fresh = await db.get_token_by_slug(slug)
         if fresh["bound_secret"] == secret:
             return secret  # we won the claim race — caller sets the cookie

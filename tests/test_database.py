@@ -379,3 +379,47 @@ async def test_unbind_token(test_db):
     row = await db.get_token_by_id(token["id"])
     assert row["bound_secret"] is None
     assert row["bound_claimed_at"] is None
+
+
+async def test_migration_backfills_the_device_that_already_held_a_link(test_db):
+    """The answer for existing links was already in the access log.
+
+    Reproduces the shape of a real installation: a link claimed months before
+    this column existed, whose claiming visit was logged at the same second.
+    """
+    now = int(time.time())
+    token = await db.create_token(
+        label="Old pairing", slug="old-pairing", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=None,
+    )
+    iphone = (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 "
+        "(KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1"
+    )
+    conn = await db.get_db()
+    # Bound the old way: no user agent stored on the token itself.
+    await conn.execute(
+        "UPDATE tokens SET bound_secret = 'x', bound_claimed_at = ?, bound_user_agent = NULL"
+        " WHERE id = ?",
+        (now, token["id"]),
+    )
+    await conn.commit()
+    await db.log_access(token_id=token["id"], event_type="page_load", user_agent=iphone)
+
+    # The backfill from migration 008, run against this row.
+    await conn.execute(
+        """
+        UPDATE tokens
+           SET bound_user_agent = (
+               SELECT a.user_agent FROM access_log a
+                WHERE a.token_id = tokens.id AND a.user_agent IS NOT NULL
+                  AND a.timestamp BETWEEN tokens.bound_claimed_at - 1
+                                      AND tokens.bound_claimed_at + 1
+                ORDER BY a.timestamp DESC LIMIT 1)
+         WHERE bound_claimed_at IS NOT NULL AND bound_user_agent IS NULL
+        """
+    )
+    await conn.commit()
+
+    row = await db.get_token_by_id(token["id"])
+    assert row["bound_user_agent"] == iphone
