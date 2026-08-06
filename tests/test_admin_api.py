@@ -793,3 +793,27 @@ async def test_dashboard_auto_detects_spanish_from_accept_language(client, mock_
     assert resp.status_code == 200
     assert 'lang="es"' in resp.text
     assert "Iniciar sesión" in resp.text
+
+
+async def test_token_list_reports_the_paired_device(
+    client, admin_session, sample_token, mock_ha_client
+):
+    """The panel has to say whose device holds the link, not just that one does."""
+    await client.post(
+        f"/g/{sample_token['slug']}/bind",
+        headers={"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) "
+                               "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 "
+                               "Mobile/15E148 Safari/604.1"},
+    )
+    resp = await client.get("/admin/tokens", cookies=admin_session)
+    assert resp.status_code == 200
+    token = next(t for t in resp.json() if t["id"] == sample_token["id"])
+    assert token["bound_device"] == "iPhone · Safari"
+
+
+async def test_an_unpaired_token_reports_no_device(
+    client, admin_session, sample_token, mock_ha_client
+):
+    resp = await client.get("/admin/tokens", cookies=admin_session)
+    token = next(t for t in resp.json() if t["id"] == sample_token["id"])
+    assert token["bound_device"] is None

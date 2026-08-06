@@ -255,15 +255,18 @@ async def update_token_schedule(
     await db.commit()
 
 
-async def claim_token_binding(token_id: str, secret: str, claimed_at: int) -> None:
-    """Bind a token to the first browser that opens it (best-effort race:
-    only succeeds if still unclaimed, so two near-simultaneous first opens
-    can't both "win")."""
+async def claim_token_binding(
+    token_id: str, secret: str, claimed_at: int, user_agent: str | None = None
+) -> None:
+    """Bind a token to the first device that pairs with it (best-effort race:
+    only succeeds if still unclaimed, so two near-simultaneous claims can't
+    both "win"). The user agent is kept so the panel can say *which* device
+    holds the link, not merely that something does."""
     db = await get_db()
     await db.execute(
-        """UPDATE tokens SET bound_secret = ?, bound_claimed_at = ?
+        """UPDATE tokens SET bound_secret = ?, bound_claimed_at = ?, bound_user_agent = ?
            WHERE id = ? AND bound_secret IS NULL""",
-        (secret, claimed_at, token_id),
+        (secret, claimed_at, user_agent, token_id),
     )
     await db.commit()
 
@@ -271,7 +274,7 @@ async def claim_token_binding(token_id: str, secret: str, claimed_at: int) -> No
 async def unbind_token(token_id: str) -> None:
     db = await get_db()
     await db.execute(
-        "UPDATE tokens SET bound_secret = NULL, bound_claimed_at = NULL WHERE id = ?",
+        "UPDATE tokens SET bound_secret = NULL, bound_claimed_at = NULL, bound_user_agent = NULL WHERE id = ?",
         (token_id,),
     )
     await db.commit()

@@ -1123,3 +1123,25 @@ async def test_a_refused_visit_is_recorded(client, sample_token, mock_ha_client)
     assert row is not None
     assert row["event_type"] == "refused_another_device"
     assert row["user_agent"] == "SomeOtherBrowser/1.0"
+
+
+async def test_pairing_records_which_device_claimed_the_link(
+    client, sample_token, mock_ha_client
+):
+    """"Paired 8h ago" could not answer whose phone is holding the link."""
+    await client.post(
+        f"/g/{sample_token['slug']}/bind",
+        headers={
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6 Mobile/15E148 Safari/604.1"
+        },
+    )
+    row = await db.get_token_by_id(sample_token["id"])
+    assert "iPhone" in row["bound_user_agent"]
+
+
+async def test_unbinding_forgets_the_device_too(client, sample_token, mock_ha_client):
+    await client.post(f"/g/{sample_token['slug']}/bind", headers={"User-Agent": "Something/1.0"})
+    await db.unbind_token(sample_token["id"])
+    row = await db.get_token_by_id(sample_token["id"])
+    assert row["bound_user_agent"] is None

@@ -13,6 +13,7 @@ from app import database as db
 from app.auth import INGRESS_SENTINEL, SESSION_COOKIE, require_admin, verify_password
 from app.config import settings
 from app import geoip
+from app import useragent
 from app import ha_client
 from app import i18n
 from app import presence
@@ -161,6 +162,11 @@ def _row_to_response(row: Any, entity_ids: list[str] | None = None) -> dict:
         "starts_at": row["starts_at"] if "starts_at" in row.keys() else None,
         "recurrence": recurrence,
         "bound_claimed_at": row["bound_claimed_at"] if "bound_claimed_at" in row.keys() else None,
+        # Recognisable label, never the raw header: it is long, noisy, and
+        # nothing in the panel is improved by showing it verbatim.
+        "bound_device": useragent.describe(
+            row["bound_user_agent"] if "bound_user_agent" in row.keys() else None
+        ),
         "max_uses": row["max_uses"] if "max_uses" in row.keys() else None,
         "use_count": row["use_count"] if "use_count" in row.keys() else 0,
     }
