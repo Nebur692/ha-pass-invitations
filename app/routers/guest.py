@@ -60,6 +60,11 @@ _states_cache_ts: float = 0
 STATE_CACHE_TTL = 30  # seconds
 ACTIVITY_EVENT_TYPE = "ha_pass_activity"
 ACTIVITY_SCHEMA_VERSION = 1
+
+# Where the welcome page points guests who want the Android app. Not a setting:
+# the app is generic and one build serves every installation, so there is only
+# ever one place to get it.
+ANDROID_RELEASE_URL = "https://github.com/Nebur692/ha-pass-invitations-android/releases/latest"
 PAGE_LOAD_EVENT_DEBOUNCE_SECONDS = 30
 _page_load_activity_ts: dict[str, float] = {}
 
@@ -225,18 +230,27 @@ def _incoming_binding(request: Request, slug: str) -> str | None:
     )
 
 
-async def _verify_or_claim_binding(row, request: Request) -> str | None:
+async def _verify_or_claim_binding(row, request: Request, claim: bool = True) -> str | None:
     """Enforces that a guest link can only ever be used from the device
     that first opened it. Returns a secret the caller must hand back (as a
     cookie for browsers, in the response body at enrollment for the app) if
     this request just claimed the token; returns None if verification passed
     against an already-bound token (nothing new to set). Raises 403 if bound
     to a different device.
+
+    With `claim=False` an unbound token is left alone and None is returned.
+    Merely *fetching* a URL must never consume the one binding a link has:
+    chat apps fetch it themselves to build a preview card, and in production
+    WhatsApp's fetcher claimed three links within seconds of them being sent,
+    leaving the actual guest locked out. Claiming is therefore a deliberate
+    act — see the /bind endpoint behind the welcome page's button.
     """
     slug = row["slug"]
     incoming = _incoming_binding(request, slug)
 
     if row["bound_secret"] is None:
+        if not claim:
+            return None
         secret = secrets.token_hex(32)
         await db.claim_token_binding(row["id"], secret, int(time.time()))
         fresh = await db.get_token_by_slug(slug)
@@ -384,13 +398,22 @@ async def guest_pwa(background_tasks: BackgroundTasks, request: Request, slug: s
         ctx.update({"slug": slug, "contact_message": settings.contact_message, "reason": "used_up"})
         return templates.TemplateResponse(request, "expired.html", ctx, status_code=410)
 
+    # Never claims: this same request is what a chat app makes to build a link
+    # preview. A device that isn't the bound one still gets turned away here,
+    # it just no longer *becomes* the bound one by asking.
     try:
         _enforce_ip_allowlist(row, request)
-        new_binding_secret = await _verify_or_claim_binding(row, request)
+        await _verify_or_claim_binding(row, request, claim=False)
     except HTTPException as exc:
         ctx = base_context(request)
         ctx.update(_guest_i18n_ctx(request))
-        ctx.update({"slug": slug, "contact_message": settings.contact_message, "reason": "expired"})
+        ctx.update({
+            "slug": slug,
+            "contact_message": settings.contact_message,
+            # Saying "expired" here sent the admin hunting through dates for a
+            # problem that was never about time.
+            "reason": "another_device" if exc.status_code == status.HTTP_403_FORBIDDEN else "expired",
+        })
         return templates.TemplateResponse(request, "expired.html", ctx, status_code=exc.status_code)
 
     if state is TokenState.NOT_YET_ACTIVE:
@@ -402,10 +425,19 @@ async def guest_pwa(background_tasks: BackgroundTasks, request: Request, slug: s
             "available_at": _next_available_at(row, now),
             "contact_message": settings.contact_message,
         })
-        resp = templates.TemplateResponse(request, "not_active_yet.html", ctx, status_code=403)
-        if new_binding_secret:
-            _set_binding_cookie(resp, request, slug, new_binding_secret, row["expires_at"])
-        return resp
+        return templates.TemplateResponse(request, "not_active_yet.html", ctx, status_code=403)
+
+    # Unclaimed link: hand out the welcome page instead of the controls. It
+    # says nothing about the home, so a preview card leaks nothing either.
+    if row["bound_secret"] is None:
+        ctx = base_context(request)
+        ctx.update(_guest_i18n_ctx(request))
+        ctx.update({
+            "slug": slug,
+            "contact_message": settings.contact_message,
+            "android_release_url": ANDROID_RELEASE_URL,
+        })
+        return templates.TemplateResponse(request, "welcome.html", ctx)
 
     await db.touch_token(row["id"])
     await db.log_access(
@@ -415,8 +447,6 @@ async def guest_pwa(background_tasks: BackgroundTasks, request: Request, slug: s
         user_agent=request.headers.get("User-Agent"),
     )
     _schedule_page_load_activity(background_tasks, row)
-    if new_binding_secret:
-        _schedule_activity_event(background_tasks, _activity_payload(row, "first_use"))
     ctx = base_context(request)
     ctx.update(_guest_i18n_ctx(request))
     ctx.update({
@@ -426,10 +456,32 @@ async def guest_pwa(background_tasks: BackgroundTasks, request: Request, slug: s
         "contact_message": settings.contact_message,
         "never_expires": NEVER_EXPIRES_SECONDS,
     })
-    resp = templates.TemplateResponse(request, "guest_pwa.html", ctx)
+    return templates.TemplateResponse(request, "guest_pwa.html", ctx)
+
+
+# ---------------------------------------------------------------------------
+# Claiming the link for this device
+# ---------------------------------------------------------------------------
+
+@router.post("/{slug}/bind")
+async def guest_bind(
+    background_tasks: BackgroundTasks,
+    request: Request,
+    response: Response,
+    slug: str = Path(max_length=64),
+):
+    """Claim this guest link for the device that asked.
+
+    Split out of the page load on purpose. A POST needs a deliberate tap, and
+    link-preview fetchers only ever issue GETs, so the link survives being
+    shared through a chat app.
+    """
+    row = await _validate_token(slug, request)
+    new_binding_secret = await _verify_or_claim_binding(row, request)
     if new_binding_secret:
-        _set_binding_cookie(resp, request, slug, new_binding_secret, row["expires_at"])
-    return resp
+        _set_binding_cookie(response, request, slug, new_binding_secret, row["expires_at"])
+        _schedule_activity_event(background_tasks, _activity_payload(row, "first_use"))
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
