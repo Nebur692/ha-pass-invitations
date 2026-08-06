@@ -271,13 +271,27 @@ def _is_https(request: Request) -> bool:
     return request.url.scheme == "https" or forwarded_proto == "https"
 
 
+# Browsers cap persistent cookies at 400 days, so asking for more is pointless.
+MAX_BINDING_COOKIE_AGE = 400 * 24 * 60 * 60
+
+
 def _set_binding_cookie(response: Response, request: Request, slug: str, secret: str, expires_at: int) -> None:
-    max_age = max(1, expires_at - int(time.time())) if expires_at < NEVER_EXPIRES_SECONDS else None
+    # A never-expiring token used to get max_age=None, i.e. a session cookie
+    # that the guest lost as soon as they closed their browser — and losing it
+    # reads as "some other device has this link".
+    remaining = expires_at - int(time.time())
+    max_age = min(max(1, remaining), MAX_BINDING_COOKIE_AGE)
     response.set_cookie(
         _binding_cookie_name(slug),
         secret,
         httponly=True,
-        samesite="strict",
+        # Lax, not Strict: a guest link is *always* arrived at from somewhere
+        # else — a WhatsApp message, an email — and Strict withholds the cookie
+        # on exactly that navigation, so the guest who already paired came back
+        # looking like an impostor. Nothing is weakened by this: the slug in
+        # the URL is the credential, and this cookie only ever narrows access
+        # further. Cross-site POSTs still don't carry it.
+        samesite="lax",
         secure=_is_https(request),
         path=f"/g/{slug}",
         max_age=max_age,
@@ -401,20 +415,34 @@ async def guest_pwa(background_tasks: BackgroundTasks, request: Request, slug: s
     # Never claims: this same request is what a chat app makes to build a link
     # preview. A device that isn't the bound one still gets turned away here,
     # it just no longer *becomes* the bound one by asking.
-    try:
-        _enforce_ip_allowlist(row, request)
-        await _verify_or_claim_binding(row, request, claim=False)
-    except HTTPException as exc:
+    # Refusals used to leave no trace at all, which is why a link eaten by a
+    # preview fetcher looked, in the activity log, exactly like a guest who
+    # never bothered to open it.
+    async def _refuse(exc: HTTPException, event_type: str, reason: str):
+        await db.log_access(
+            token_id=row["id"],
+            event_type=event_type,
+            ip_address=_client_ip(request),
+            user_agent=request.headers.get("User-Agent"),
+        )
         ctx = base_context(request)
         ctx.update(_guest_i18n_ctx(request))
-        ctx.update({
-            "slug": slug,
-            "contact_message": settings.contact_message,
-            # Saying "expired" here sent the admin hunting through dates for a
-            # problem that was never about time.
-            "reason": "another_device" if exc.status_code == status.HTTP_403_FORBIDDEN else "expired",
-        })
+        ctx.update({"slug": slug, "contact_message": settings.contact_message, "reason": reason})
         return templates.TemplateResponse(request, "expired.html", ctx, status_code=exc.status_code)
+
+    # Two different refusals that both happen to be a 403. Telling them apart
+    # by status code alone claimed an IP-blocked visitor was "another device".
+    try:
+        _enforce_ip_allowlist(row, request)
+    except HTTPException as exc:
+        return await _refuse(exc, "refused_ip", "expired")
+
+    try:
+        await _verify_or_claim_binding(row, request, claim=False)
+    except HTTPException as exc:
+        # Saying "expired" here sent the admin hunting through dates for a
+        # problem that was never about time.
+        return await _refuse(exc, "refused_another_device", "another_device")
 
     if state is TokenState.NOT_YET_ACTIVE:
         ctx = base_context(request)

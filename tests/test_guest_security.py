@@ -15,7 +15,12 @@ import pytest
 from app import database as db
 from app import i18n
 from app.config import settings
-from app.models import ALLOWED_SERVICES, FORBIDDEN_DATA_KEYS, READ_ONLY_DOMAINS
+from app.models import (
+    ALLOWED_SERVICES,
+    FORBIDDEN_DATA_KEYS,
+    NEVER_EXPIRES_SECONDS,
+    READ_ONLY_DOMAINS,
+)
 
 
 @pytest.fixture
@@ -369,13 +374,27 @@ async def test_guest_pwa_ip_allowlist_blocks_non_matching(client, mock_ha_client
     row = await db.get_token_by_id(token["id"])
     assert row["last_accessed"] is None
     conn = await db.get_db()
+    # Recorded as a refusal, never as an access — and specifically as an IP
+    # refusal, because reporting it as "another device" would be a lie the
+    # guest cannot act on.
     async with conn.execute(
-        "SELECT COUNT(*) as cnt FROM access_log WHERE token_id = ?", (token["id"],)
+        "SELECT event_type FROM access_log WHERE token_id = ?", (token["id"],)
     ) as cur:
-        count = await cur.fetchone()
-    assert count["cnt"] == 0
+        rows = await cur.fetchall()
+    assert [r["event_type"] for r in rows] == ["refused_ip"]
     mock_ha_client["fire_event"].assert_not_called()
     mock_ha_client["logbook_log"].assert_not_called()
+
+
+async def test_ip_refusal_is_not_reported_as_another_device(client, mock_ha_client, test_db):
+    now = int(time.time())
+    await db.create_token(
+        label="IP", slug="ip-not-device", entity_ids=["light.a"],
+        expires_at=now + 3600, ip_allowlist=["10.0.0.0/8"],
+    )
+    resp = await client.get("/g/ip-not-device")
+    assert resp.status_code == 403
+    assert i18n.GUEST_STRINGS["en"]["title_another_device"] not in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -1040,3 +1059,67 @@ async def test_unlimited_use_token_unaffected_by_max_uses_logic(client, sample_t
         assert resp.status_code == 200
     row = await db.get_token_by_id(sample_token["id"])
     assert row["use_count"] == 0  # never incremented when max_uses is None
+
+
+# ---------------------------------------------------------------------------
+# The binding cookie has to survive the way guest links actually travel
+# ---------------------------------------------------------------------------
+
+async def test_binding_cookie_is_lax_so_it_survives_a_tap_from_a_chat_app(
+    client, sample_token, mock_ha_client
+):
+    """Strict withheld the cookie on exactly the navigation that matters.
+
+    A guest link is always arrived at from somewhere else — a WhatsApp message,
+    an email — and on that cross-site top-level navigation a Strict cookie is
+    not sent, so a guest who had already paired came back looking like a
+    different device and was refused.
+    """
+    resp = await client.post(f"/g/{sample_token['slug']}/bind")
+    cookie = next(
+        c for c in resp.headers.get_list("set-cookie")
+        if c.startswith(f"hp_bind_{sample_token['slug']}=")
+    )
+    assert "SameSite=lax" in cookie.replace("samesite=lax", "SameSite=lax")
+    assert "Strict" not in cookie
+    assert "HttpOnly" in cookie
+
+
+async def test_binding_cookie_persists_for_a_never_expiring_token(
+    client, mock_ha_client, test_db
+):
+    """A session cookie died with the browser, locking the guest out."""
+    await db.create_token(
+        label="Forever", slug="forever-link", entity_ids=["light.a"],
+        expires_at=NEVER_EXPIRES_SECONDS, ip_allowlist=None,
+    )
+    resp = await client.post("/g/forever-link/bind")
+    cookie = next(
+        c for c in resp.headers.get_list("set-cookie") if c.startswith("hp_bind_forever-link=")
+    )
+    assert "Max-Age=" in cookie
+    max_age = int(cookie.split("Max-Age=")[1].split(";")[0])
+    assert max_age > 30 * 24 * 60 * 60
+
+
+async def test_a_refused_visit_is_recorded(client, sample_token, mock_ha_client):
+    """Refusals left no trace, so a link eaten by a bot looked like an unused one."""
+    await client.post(f"/g/{sample_token['slug']}/bind")
+
+    from main import app as _app
+    transport = httpx.ASGITransport(app=_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as other:
+        resp = await other.get(
+            f"/g/{sample_token['slug']}", headers={"User-Agent": "SomeOtherBrowser/1.0"}
+        )
+        assert resp.status_code == 403
+
+    conn = await db.get_db()
+    async with conn.execute(
+        "SELECT event_type, user_agent FROM access_log WHERE token_id = ? AND event_type LIKE 'refused%'",
+        (sample_token["id"],),
+    ) as cur:
+        row = await cur.fetchone()
+    assert row is not None
+    assert row["event_type"] == "refused_another_device"
+    assert row["user_agent"] == "SomeOtherBrowser/1.0"
