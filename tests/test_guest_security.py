@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 from app import database as db
+from app import i18n
 from app.config import settings
 from app.models import ALLOWED_SERVICES, FORBIDDEN_DATA_KEYS, READ_ONLY_DOMAINS
 
@@ -437,14 +438,15 @@ async def test_service_with_uppercase_rejected(client, sample_token, mock_ha_cli
 
 async def test_guest_pwa_valid_token_renders_page(client, sample_token, mock_ha_client):
     """A valid token slug renders the guest PWA page and touches the token."""
+    # "first_use" now belongs to the deliberate pairing step, not to whoever
+    # fetched the URL first — see test_page_load_alone_never_claims_the_binding.
+    await client.post(f"/g/{sample_token['slug']}/bind")
     resp = await client.get(f"/g/{sample_token['slug']}")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     # Token should have been touched (last_accessed updated)
     row = await db.get_token_by_id(sample_token["id"])
     assert row["last_accessed"] is not None
-    # First-ever open fires both "page_load" and "first_use" (the latter is
-    # the one-time binding-claim event, see app/routers/guest.py).
     assert mock_ha_client["fire_event"].call_count == 2
     payloads = [call.args[1] for call in mock_ha_client["fire_event"].call_args_list]
     assert {p["activity"] for p in payloads} == {"page_load", "first_use"}
@@ -454,17 +456,19 @@ async def test_guest_pwa_valid_token_renders_page(client, sample_token, mock_ha_
         assert sample_token["slug"] not in payload.values()
         assert sample_token["id"] not in payload.values()
     assert mock_ha_client["logbook_log"].call_count == 2
-    # Binding cookie should have been set on first open.
-    assert any(c.startswith(f"hp_bind_{sample_token['slug']}=") for c in resp.headers.get_list("set-cookie"))
+    # The cookie belongs to the pairing step now (see
+    # test_bind_claims_the_binding_and_sets_cookie); a page load only reads it.
+    assert not resp.headers.get_list("set-cookie")
 
 
 async def test_guest_pwa_page_load_activity_is_debounced(client, sample_token, mock_ha_client):
+    await client.post(f"/g/{sample_token['slug']}/bind")
     resp = await client.get(f"/g/{sample_token['slug']}")
     assert resp.status_code == 200
     resp = await client.get(f"/g/{sample_token['slug']}")
     assert resp.status_code == 200
-    # First open: page_load + first_use (2). Second open: page_load debounced,
-    # first_use doesn't refire (already bound) — no new events.
+    # Pairing fires first_use (1); the first open adds page_load (2). The
+    # second open is debounced, and first_use never refires.
     assert mock_ha_client["fire_event"].call_count == 2
     assert mock_ha_client["logbook_log"].call_count == 2
 
@@ -472,13 +476,14 @@ async def test_guest_pwa_page_load_activity_is_debounced(client, sample_token, m
 async def test_guest_pwa_page_load_activity_debounce_expires(client, sample_token, mock_ha_client):
     import app.routers.guest as guest_mod
 
+    await client.post(f"/g/{sample_token['slug']}/bind")
     resp = await client.get(f"/g/{sample_token['slug']}")
     assert resp.status_code == 200
     guest_mod._page_load_activity_ts[sample_token["id"]] -= guest_mod.PAGE_LOAD_EVENT_DEBOUNCE_SECONDS + 1
     resp = await client.get(f"/g/{sample_token['slug']}")
     assert resp.status_code == 200
-    # First open: page_load + first_use (2). Second open: debounce expired so
-    # page_load fires again (+1); first_use never refires (already bound).
+    # first_use (1) + page_load (2); the debounce has expired by the second
+    # open so page_load fires again (3), while first_use never refires.
     assert mock_ha_client["fire_event"].call_count == 3
     assert mock_ha_client["logbook_log"].call_count == 3
 
@@ -497,17 +502,20 @@ async def test_guest_pwa_page_load_activity_debounce_is_per_token(
         expires_at=now + 3600,
         ip_allowlist=None,
     )
+    await client.post(f"/g/{sample_token['slug']}/bind")
+    await client.post(f"/g/{second['slug']}/bind")
     resp = await client.get(f"/g/{sample_token['slug']}")
     assert resp.status_code == 200
     resp = await client.get(f"/g/{second['slug']}")
     assert resp.status_code == 200
-    # Each token's first-ever open fires page_load + first_use (2 each).
+    # Each token contributes first_use + page_load (2 each).
     assert mock_ha_client["fire_event"].call_count == 4
     assert mock_ha_client["logbook_log"].call_count == 4
 
 
 async def test_guest_pwa_activity_event_failure_does_not_break_page(client, sample_token, mock_ha_client):
     mock_ha_client["fire_event"].side_effect = RuntimeError("ha unavailable")
+    await client.post(f"/g/{sample_token['slug']}/bind")
     resp = await client.get(f"/g/{sample_token['slug']}")
     assert resp.status_code == 200
     # Both page_load and first_use are attempted independently (each is its
@@ -518,6 +526,7 @@ async def test_guest_pwa_activity_event_failure_does_not_break_page(client, samp
 
 async def test_guest_pwa_logbook_failure_does_not_break_page(client, sample_token, mock_ha_client):
     mock_ha_client["logbook_log"].side_effect = RuntimeError("logbook unavailable")
+    await client.post(f"/g/{sample_token['slug']}/bind")
     resp = await client.get(f"/g/{sample_token['slug']}")
     assert resp.status_code == 200
     assert mock_ha_client["fire_event"].call_count == 2
@@ -871,19 +880,57 @@ async def test_local_network_cidrs_empty_means_no_restriction(client, mock_ha_cl
 # Single-browser binding
 # ---------------------------------------------------------------------------
 
-async def test_first_open_claims_binding_and_sets_cookie(client, sample_token, mock_ha_client):
+async def test_page_load_alone_never_claims_the_binding(client, sample_token, mock_ha_client):
+    """The regression that broke three real invitations.
+
+    WhatsApp fetches a link to build its preview card, and that GET used to
+    claim the one binding the link has — so the guest who tapped it moments
+    later was told the link belonged to another device.
+    """
+    resp = await client.get(
+        f"/g/{sample_token['slug']}", headers={"User-Agent": "WhatsApp/2.23.20.0"}
+    )
+    assert resp.status_code == 200
+    row = await db.get_token_by_id(sample_token["id"])
+    assert row["bound_secret"] is None
+    assert row["bound_claimed_at"] is None
+    assert not resp.headers.get_list("set-cookie")
+
+
+async def test_welcome_page_is_shown_while_unclaimed_and_leaks_nothing(
+    client, sample_token, mock_ha_client
+):
     resp = await client.get(f"/g/{sample_token['slug']}")
+    assert resp.status_code == 200
+    assert 'id="bind-btn"' in resp.text
+    assert i18n.GUEST_STRINGS["en"]["welcome_bind_action"] in resp.text
+    # A preview card renders this page, so no entity may appear in it.
+    assert "light.living_room" not in resp.text
+    assert "input_button.front_gate" not in resp.text
+
+
+async def test_bind_claims_the_binding_and_sets_cookie(client, sample_token, mock_ha_client):
+    resp = await client.post(f"/g/{sample_token['slug']}/bind")
     assert resp.status_code == 200
     row = await db.get_token_by_id(sample_token["id"])
     assert row["bound_secret"] is not None
     assert row["bound_claimed_at"] is not None
-    assert any(c.startswith(f"hp_bind_{sample_token['slug']}=") for c in resp.headers.get_list("set-cookie"))
+    assert any(
+        c.startswith(f"hp_bind_{sample_token['slug']}=")
+        for c in resp.headers.get_list("set-cookie")
+    )
+
+
+async def test_controls_are_served_once_bound(client, sample_token, mock_ha_client):
+    await client.post(f"/g/{sample_token['slug']}/bind")
+    resp = await client.get(f"/g/{sample_token['slug']}")
+    assert resp.status_code == 200
+    assert f"/g/{sample_token['slug']}/bind" not in resp.text
 
 
 async def test_second_browser_without_cookie_is_blocked(client, sample_token, mock_ha_client):
-    # First open claims the binding for this (shared) test client's cookiejar.
-    resp = await client.get(f"/g/{sample_token['slug']}")
-    assert resp.status_code == 200
+    # Claim the binding for this (shared) test client's cookiejar.
+    assert (await client.post(f"/g/{sample_token['slug']}/bind")).status_code == 200
 
     # A second, independent client has no cookies at all — simulates a
     # different browser/device that received a forwarded link.
@@ -892,11 +939,25 @@ async def test_second_browser_without_cookie_is_blocked(client, sample_token, mo
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as other_client:
         resp2 = await other_client.get(f"/g/{sample_token['slug']}")
         assert resp2.status_code == 403
+        # And it must say so, rather than blaming an expiry that never happened.
+        assert i18n.GUEST_STRINGS["en"]["title_another_device"] in resp2.text
+        assert i18n.GUEST_STRINGS["en"]["title_expired"] not in resp2.text
+
+
+async def test_second_browser_cannot_steal_an_unclaimed_link_by_binding_twice(
+    client, sample_token, mock_ha_client
+):
+    assert (await client.post(f"/g/{sample_token['slug']}/bind")).status_code == 200
+
+    from main import app as _app
+    transport = httpx.ASGITransport(app=_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as other_client:
+        resp2 = await other_client.post(f"/g/{sample_token['slug']}/bind")
+        assert resp2.status_code == 403
 
 
 async def test_command_blocked_for_unbound_device(client, sample_token, mock_ha_client):
-    resp = await client.get(f"/g/{sample_token['slug']}")
-    assert resp.status_code == 200
+    assert (await client.post(f"/g/{sample_token['slug']}/bind")).status_code == 200
 
     from main import app as _app
     transport = httpx.ASGITransport(app=_app)
@@ -911,15 +972,14 @@ async def test_command_blocked_for_unbound_device(client, sample_token, mock_ha_
 
 
 async def test_unbind_allows_a_new_device_to_claim(client, sample_token, mock_ha_client):
-    resp = await client.get(f"/g/{sample_token['slug']}")
-    assert resp.status_code == 200
+    assert (await client.post(f"/g/{sample_token['slug']}/bind")).status_code == 200
 
     await db.unbind_token(sample_token["id"])
 
     from main import app as _app
     transport = httpx.ASGITransport(app=_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as other_client:
-        resp2 = await other_client.get(f"/g/{sample_token['slug']}")
+        resp2 = await other_client.post(f"/g/{sample_token['slug']}/bind")
         assert resp2.status_code == 200
         row = await db.get_token_by_id(sample_token["id"])
         assert row["bound_secret"] is not None

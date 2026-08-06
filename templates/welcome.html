@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t('welcome_title') }} — {{ app_name }}{% endblock %}
+
+{% block head_extra %}
+<meta name="theme-color" content="{{ brand_bg }}" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="{{ brand_bg_dark }}" media="(prefers-color-scheme: dark)">
+{# Deliberately generic: this is the description a chat app shows in its
+   preview card, so it must not name the household or its devices. #}
+<meta name="description" content="{{ t('welcome_preview_description') }}">
+<meta name="robots" content="noindex, nofollow">
+{% endblock %}
+
+{% block body_attrs %}class="bg-bg-light dark:bg-bg-dark text-soot dark:text-gray-100 font-sans antialiased min-h-dvh flex items-center justify-center text-center p-8"{% endblock %}
+
+{% block body %}
+  <noscript>
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem;text-align:center;font-family:sans-serif;">
+      <p>{{ t('js_required') }}</p>
+    </div>
+  </noscript>
+
+  <div class="w-full max-w-xs">
+    <div class="w-20 h-20 rounded-full bg-soot/5 dark:bg-white/5 flex items-center justify-center mx-auto mb-6">
+      <span aria-hidden="true" class="material-symbols-outlined text-4xl text-accent">key</span>
+    </div>
+
+    <h1 class="text-2xl font-serif tracking-tight mb-2">{{ t('welcome_title') }}</h1>
+    <p class="text-muted text-base leading-relaxed mb-8">{{ t('welcome_body') }}</p>
+
+    <button id="bind-btn" type="button"
+            class="w-full rounded-xl bg-accent text-white font-medium py-3.5 px-6 active:scale-[0.98] transition">
+      {{ t('welcome_bind_action') }}
+    </button>
+    <p id="bind-error" class="hidden text-sm text-red-600 dark:text-red-400 mt-3"></p>
+
+    <button id="app-toggle" type="button"
+            class="w-full text-sm text-muted underline underline-offset-4 mt-6">
+      {{ t('welcome_app_toggle') }}
+    </button>
+
+    <div id="app-panel" class="hidden mt-5 rounded-xl bg-soot/5 dark:bg-white/5 p-5">
+      <p class="text-sm text-muted leading-relaxed mb-4">{{ t('welcome_app_body') }}</p>
+      <div id="qr" class="bg-white rounded-lg p-3 inline-block [&_img]:block"></div>
+      <p class="text-xs text-muted mt-4">
+        <a class="underline underline-offset-4" href="{{ android_release_url }}" target="_blank" rel="noopener noreferrer">
+          {{ t('welcome_app_download') }}
+        </a>
+      </p>
+    </div>
+  </div>
+{% endblock %}
+
+{% block body_scripts %}
+<script src="{{ base_path }}/static/theme.js"></script>
+<!-- QR code generator v1.4.4 | MIT | (c) Kazuhiko Arase -->
+<script src="{{ base_path }}/static/qrcode.min.js"></script>
+<script nonce="{{ csp_nonce }}">
+  (() => {
+    const slug = {{ slug | tojson }};
+    const base = {{ base_path | tojson }};
+
+    const btn = document.getElementById('bind-btn');
+    const error = document.getElementById('bind-error');
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      error.classList.add('hidden');
+      try {
+        const res = await fetch(`${base}/g/${slug}/bind`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+        });
+        if (!res.ok) {
+          // Someone else claimed it in the meantime; reloading lands on the
+          // page that explains that, rather than leaving a dead button.
+          if (res.status === 403 || res.status === 410) { location.reload(); return; }
+          throw new Error(res.status);
+        }
+        location.reload();
+      } catch (e) {
+        btn.disabled = false;
+        error.textContent = {{ t('welcome_bind_failed') | tojson }};
+        error.classList.remove('hidden');
+      }
+    });
+
+    const toggle = document.getElementById('app-toggle');
+    const panel = document.getElementById('app-panel');
+    let drawn = false;
+    toggle.addEventListener('click', () => {
+      panel.classList.toggle('hidden');
+      if (drawn || panel.classList.contains('hidden')) return;
+      drawn = true;
+      if (typeof qrcode === 'undefined') return;
+      const qr = qrcode(0, 'M');
+      qr.addData(location.href);
+      qr.make();
+      document.getElementById('qr').innerHTML = qr.createImgTag(5, 0);
+    });
+  })();
+</script>
+{% endblock %}
