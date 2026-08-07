@@ -45,9 +45,10 @@
 
       <div id="app-panel" class="hidden mt-5 rounded-xl bg-soot/5 dark:bg-white/5 p-5">
         <p class="text-sm text-muted leading-relaxed mb-4">{{ t('welcome_app_body') }}</p>
-        <a id="app-open" class="block w-full rounded-xl bg-soot/10 dark:bg-white/10 font-medium py-3 px-4 mb-4" href="#">
+        <a id="app-open" class="block w-full rounded-xl bg-soot/10 dark:bg-white/10 font-medium py-3 px-4" href="#">
           {{ t('welcome_app_open') }}
         </a>
+        <p id="app-copied" class="hidden text-xs text-muted mt-2 mb-4"></p>
         <div id="qr" class="bg-white rounded-lg p-3 inline-block [&_img]:block"></div>
         <p class="text-xs text-muted mt-4">
           <a class="underline underline-offset-4" href="{{ android_release_url }}" target="_blank" rel="noopener noreferrer">
@@ -105,10 +106,48 @@
       // browser_fallback_url is what sends a guest without the app installed
       // to the download page instead of nowhere.
       const fallback = encodeURIComponent({{ android_release_url | tojson }});
-      document.getElementById('app-open').href =
+      const intentUrl =
         `intent://enroll?u=${encodeURIComponent(location.href)}` +
         `#Intent;scheme=hapass;package=io.github.nebur692.hapass;` +
         `S.browser_fallback_url=${fallback};end`;
+
+      const openBtn = document.getElementById('app-open');
+      openBtn.href = intentUrl;
+      openBtn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        // Copy first, then hand over. When the intent works the app reads the
+        // invitation straight out of it and the clipboard goes unused — this
+        // is for the two cases where it doesn't: a chat app's built-in browser
+        // that ignores intent://, and a guest who had to install from the
+        // store first and comes back to an app that knows nothing yet.
+        await copyInvitation();
+        location.href = intentUrl;
+      });
+    }
+
+    async function copyInvitation() {
+      // The async Clipboard API is unavailable outside a secure context, and
+      // plenty of installations are plain http on a LAN address.
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(location.href);
+        } else {
+          const scratch = document.createElement('textarea');
+          scratch.value = location.href;
+          scratch.setAttribute('readonly', '');
+          scratch.style.position = 'fixed';
+          scratch.style.opacity = '0';
+          document.body.appendChild(scratch);
+          scratch.select();
+          document.execCommand('copy');
+          document.body.removeChild(scratch);
+        }
+        const note = document.getElementById('app-copied');
+        note.textContent = {{ t('welcome_app_copied') | tojson }};
+        note.classList.remove('hidden');
+      } catch (e) {
+        // Copying is a convenience; never let it stop the app from opening.
+      }
     }
 
     const toggle = document.getElementById('app-toggle');
