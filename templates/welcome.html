@@ -34,19 +34,27 @@
     </button>
     <p id="bind-error" class="hidden text-sm text-red-600 dark:text-red-400 mt-3"></p>
 
-    <button id="app-toggle" type="button"
-            class="w-full text-sm text-muted underline underline-offset-4 mt-6">
-      {{ t('welcome_app_toggle') }}
-    </button>
+    {# Hidden until the script confirms this is Android. The app is
+       Android-only, and offering an iPhone guest an APK to download is worse
+       than offering nothing — it is an instruction they cannot follow. #}
+    <div id="app-section" class="hidden">
+      <button id="app-toggle" type="button"
+              class="w-full text-sm text-muted underline underline-offset-4 mt-6">
+        {{ t('welcome_app_toggle') }}
+      </button>
 
-    <div id="app-panel" class="hidden mt-5 rounded-xl bg-soot/5 dark:bg-white/5 p-5">
-      <p class="text-sm text-muted leading-relaxed mb-4">{{ t('welcome_app_body') }}</p>
-      <div id="qr" class="bg-white rounded-lg p-3 inline-block [&_img]:block"></div>
-      <p class="text-xs text-muted mt-4">
-        <a class="underline underline-offset-4" href="{{ android_release_url }}" target="_blank" rel="noopener noreferrer">
-          {{ t('welcome_app_download') }}
+      <div id="app-panel" class="hidden mt-5 rounded-xl bg-soot/5 dark:bg-white/5 p-5">
+        <p class="text-sm text-muted leading-relaxed mb-4">{{ t('welcome_app_body') }}</p>
+        <a id="app-open" class="block w-full rounded-xl bg-soot/10 dark:bg-white/10 font-medium py-3 px-4 mb-4" href="#">
+          {{ t('welcome_app_open') }}
         </a>
-      </p>
+        <div id="qr" class="bg-white rounded-lg p-3 inline-block [&_img]:block"></div>
+        <p class="text-xs text-muted mt-4">
+          <a class="underline underline-offset-4" href="{{ android_release_url }}" target="_blank" rel="noopener noreferrer">
+            {{ t('welcome_app_download') }}
+          </a>
+        </p>
+      </div>
     </div>
   </div>
 {% endblock %}
@@ -84,6 +92,24 @@
         error.classList.remove('hidden');
       }
     });
+
+    // Android only, and deliberately a plain userAgent test: getting this
+    // wrong costs a guest a button that does nothing, not access.
+    const isAndroid = /android/i.test(navigator.userAgent);
+    if (isAndroid) {
+      document.getElementById('app-section').classList.remove('hidden');
+
+      // A custom scheme, not the https link: the app is generic and Android
+      // only verifies https App Links for hosts named in the app's own
+      // manifest, which cannot include everyone's self-hosted domain.
+      // browser_fallback_url is what sends a guest without the app installed
+      // to the download page instead of nowhere.
+      const fallback = encodeURIComponent({{ android_release_url | tojson }});
+      document.getElementById('app-open').href =
+        `intent://enroll?u=${encodeURIComponent(location.href)}` +
+        `#Intent;scheme=hapass;package=io.github.nebur692.hapass;` +
+        `S.browser_fallback_url=${fallback};end`;
+    }
 
     const toggle = document.getElementById('app-toggle');
     const panel = document.getElementById('app-panel');
