@@ -1173,3 +1173,20 @@ async def test_the_open_in_app_link_uses_a_custom_scheme_with_a_fallback(
     assert "scheme=hapass" in resp.text
     assert "package=io.github.nebur692.hapass" in resp.text
     assert "S.browser_fallback_url=" in resp.text
+
+
+async def test_the_invitation_is_copied_before_handing_over_to_the_app(
+    client, sample_token, mock_ha_client
+):
+    """The clipboard is the net for the two cases the intent cannot cover:
+    a chat app's built-in browser that ignores intent://, and a guest who had
+    to install from the store first and returns to an app that knows nothing."""
+    resp = await client.get(f"/g/{sample_token['slug']}")
+    body = resp.text
+    assert "copyInvitation" in body
+    # Copy has to finish before the page is handed over, or navigation cancels it.
+    assert body.index("await copyInvitation();") < body.index("location.href = intentUrl;")
+    # Plenty of installations are plain http on a LAN address, where the async
+    # Clipboard API does not exist.
+    assert "window.isSecureContext" in body
+    assert "document.execCommand('copy')" in body
