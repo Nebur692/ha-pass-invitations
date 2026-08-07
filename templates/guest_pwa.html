@@ -22,6 +22,19 @@
 
 {% block head_styles %}
 <style>
+  /* The tinted rounded square that carries an entity's icon. Sized and
+     radiused to read as a "shape" rather than a button, so a guest doesn't
+     try to tap it — the controls to its right are what act. */
+  .entity-shape {
+    width: 44px; height: 44px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: background-color .3s ease;
+  }
+  .entity-shape .material-symbols-outlined {
+    font-size: 22px;
+    transition: color .3s ease;
+  }
   @keyframes cardPulse { 0% { opacity: .7; } 100% { opacity: 1; } }
   .pulse { animation: cardPulse .4s ease-out; }
   @keyframes pingDot { 0% { transform: scale(1); opacity: 1; } 75%, 100% { transform: scale(2); opacity: 0; } }
@@ -361,11 +374,10 @@ function renderAll() {
   let html = '';
   for (const domain of sortedDomains) {
     const label = domainLabel(domain) || (domain.charAt(0).toUpperCase() + domain.slice(1));
-    const icon = DOMAIN_ICONS[domain] || 'devices';
-    const color = DOMAIN_COLORS[domain] || { text: 'text-muted' };
-    html += `<div class="flex items-center gap-2 pt-5 pb-2 px-1">
-      <span aria-hidden="true" class="material-symbols-outlined text-base ${color.text}">${icon}</span>
-      <span class="text-[11px] font-mono font-bold uppercase tracking-widest text-muted">${esc(label)}</span>
+    // Quieter than the cards under it: a heading that competes with the
+    // entities makes the list harder to scan, not easier.
+    html += `<div class="pt-5 pb-2 px-1">
+      <span class="text-[13px] font-medium text-muted">${esc(label)}</span>
     </div>`;
     for (const eid of groups[domain]) {
       html += buildCard(eid, states[eid]);
@@ -377,13 +389,16 @@ function renderAll() {
 function buildCard(eid, state) {
   if (!state) return '';
   const domain = eid.split('.')[0];
-  const name = state.attributes?.friendly_name || eid;
+  const name = entityName(eid, state);
   const stateStr = state.state;
-  const color = DOMAIN_COLORS[domain] || { bg: 'bg-gray-500/10', text: 'text-gray-500', icon: 'bg-gray-500' };
+  const color = entityColor(domain, stateStr, state);
   const icon = DOMAIN_ICONS[domain] || 'devices';
 
-  const isOff = isDimmedState(domain, stateStr);
-  const opacityClass = isOff ? 'opacity-60' : '';
+  // Only the shape goes quiet when an entity is idle. Fading the whole card,
+  // as this used to, took the name down with it — and the name is the part a
+  // guest needs to read in order to find the thing they came for.
+  const unavailable = stateStr === 'unavailable' || stateStr === 'unknown';
+  const opacityClass = unavailable ? 'opacity-60' : '';
 
   let controls = '';
   if (domain === 'light') controls = buildLightControls(eid, state);
@@ -402,14 +417,14 @@ function buildCard(eid, state) {
     data-action="toggle" data-eid="${esc(eid)}" data-domain="${domain}"
     ></div>` : '';
 
-  return `<div class="bg-surface-light dark:bg-surface-dark rounded-2xl p-4 mb-2.5 shadow-card border border-border-light dark:border-border-dark ${opacityClass}" id="card-${cssId(eid)}">
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl ${color.bg} flex items-center justify-center flex-shrink-0">
+  return `<div class="bg-surface-light dark:bg-surface-dark rounded-2xl p-3.5 mb-2 shadow-card ${opacityClass}" id="card-${cssId(eid)}">
+    <div class="flex items-center gap-3.5">
+      <div class="entity-shape ${color.bg}" id="shape-${cssId(eid)}">
         <span aria-hidden="true" class="material-symbols-outlined ${color.text}" id="icon-${cssId(eid)}">${icon}</span>
       </div>
       <div class="flex-1 min-w-0">
-        <div class="text-sm font-semibold truncate">${esc(name)}</div>
-        <div class="text-xs text-muted" id="state-${cssId(eid)}">${formatState(domain, stateStr, state)}</div>
+        <div class="text-[15px] font-medium leading-tight truncate">${esc(name)}</div>
+        <div class="text-[13px] text-muted leading-tight mt-0.5" id="state-${cssId(eid)}">${formatState(domain, stateStr, state)}</div>
       </div>
       ${toggleHtml}
     </div>
@@ -417,8 +432,38 @@ function buildCard(eid, state) {
   </div>`;
 }
 
+/** Repaint an icon shape after a state change, so colour tracks the entity. */
+function applyEntityColor(eid, domain, state) {
+  const shape = document.getElementById(`shape-${cssId(eid)}`);
+  const icon = document.getElementById(`icon-${cssId(eid)}`);
+  if (!shape || !icon) return;
+  const color = entityColor(domain, state.state, state);
+  shape.className = `entity-shape ${color.bg}`;
+  icon.className = `material-symbols-outlined ${color.text}`;
+}
+
+/**
+ * The name to show for an entity.
+ *
+ * Home Assistant drops the attributes of an unavailable entity, friendly_name
+ * included, so falling straight back to the entity id put a raw
+ * "light.pasillo" in front of the guest. Tidying the id up is a guess, but a
+ * legible one, and it only ever shows for an entity that is already broken.
+ */
+function entityName(eid, state) {
+  const friendly = state?.attributes?.friendly_name;
+  if (friendly) return friendly;
+  const object = eid.split('.').slice(1).join('.').replace(/_/g, ' ').trim();
+  if (!object) return eid;
+  return object.charAt(0).toUpperCase() + object.slice(1);
+}
+
 function formatState(domain, stateStr, state) {
   stateStr = stateStr || 'unknown';
+  // Reached from every domain below, so it is translated once here rather
+  // than in each branch.
+  if (stateStr === 'unavailable') return t('unavailable');
+  if (stateStr === 'unknown') return t('unknown_state');
   if (domain === 'climate') {
     const mode = state.attributes?.hvac_action || stateStr;
     const temp = state.attributes?.current_temperature;
@@ -430,7 +475,12 @@ function formatState(domain, stateStr, state) {
     if (stateStr === 'idle') return t('idle');
   }
   if (domain === 'lock') return stateStr === 'locked' ? t('locked') : t('unlocked');
-  if (domain === 'cover') return esc(stateStr.charAt(0).toUpperCase() + stateStr.slice(1));
+  if (domain === 'cover') {
+    // Was echoing Home Assistant's raw English state, so a Spanish guest read
+    // "Open" under a Spanish name.
+    const covers = { open: 'cover_open', closed: 'cover_closed', opening: 'cover_opening', closing: 'cover_closing' };
+    return covers[stateStr] ? t(covers[stateStr]) : esc(stateStr);
+  }
   if (domain === 'fan') {
     const pct = state.attributes?.percentage;
     if (stateStr === 'on' && pct != null) return `${t('on_word')} · ${pct}%`;
@@ -628,8 +678,9 @@ function updateCard(eid, state) {
   const stateEl = document.getElementById(`state-${cssId(eid)}`);
   if (stateEl) stateEl.textContent = formatState(domain, state.state, state);
 
-  const isOff = isDimmedState(domain, state.state);
-  card.classList.toggle('opacity-60', isOff);
+  const unavailable = state.state === 'unavailable' || state.state === 'unknown';
+  card.classList.toggle('opacity-60', unavailable);
+  applyEntityColor(eid, domain, state);
 
   // Domain-specific updates may replaceChild, so pulse is handled there
   const needsPulse = domain !== 'light' && domain !== 'fan';
@@ -655,7 +706,8 @@ function updateLightCard(eid, state, card) {
     toggle.classList.toggle('on', on);
     toggle.setAttribute('aria-checked', String(on));
   }
-  card.classList.toggle('opacity-60', !on);
+  // Being switched off is not the same as being unreachable: the shape's
+  // colour says "idle", and the name stays fully readable either way.
 
   const sliderSection = card.querySelector('[data-slider-section]');
   const hasSlider = sliderSection && sliderSection.querySelector('input[type=range]');
@@ -687,7 +739,8 @@ function updateToggleCard(state, card) {
     toggle.classList.toggle('on', on);
     toggle.setAttribute('aria-checked', String(on));
   }
-  card.classList.toggle('opacity-60', !on);
+  // Being switched off is not the same as being unreachable: the shape's
+  // colour says "idle", and the name stays fully readable either way.
 }
 
 function updateClimateCard(eid, state) {
@@ -797,7 +850,8 @@ function updateFanCard(eid, state, card) {
     toggle.classList.toggle('on', on);
     toggle.setAttribute('aria-checked', String(on));
   }
-  card.classList.toggle('opacity-60', !on);
+  // Being switched off is not the same as being unreachable: the shape's
+  // colour says "idle", and the name stays fully readable either way.
 
   const sliderSection = card.querySelector('[data-slider-section]');
   const hasSlider = sliderSection && sliderSection.querySelector('input[type=range]');
