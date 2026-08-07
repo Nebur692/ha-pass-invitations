@@ -1,7 +1,12 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: 'class',
-  content: ['./templates/**/*.html'],
+  // static/*.js builds class names too — domains.js is where every entity
+  // colour lives. Leaving it out silently dropped most of them: of the domain
+  // tints, only amber survived, because that one string happens to appear in a
+  // template as well. Everything else rendered untinted and nobody noticed,
+  // since lights are the domain guests see most.
+  content: ['./templates/**/*.html', './static/**/*.js'],
   safelist: [
     'bg-amber-500', 'bg-amber-500/20',
     'bg-teal-600', 'bg-teal-600/20',
