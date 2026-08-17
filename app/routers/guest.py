@@ -507,6 +507,14 @@ async def guest_bind(
     shared through a chat app.
     """
     row = await _validate_token(slug, request)
+    # Pairing is spent the moment it happens, and only the panel can undo it.
+    # Handing it over while Home Assistant is away would burn it on a page that
+    # cannot show a single device, so the guest is asked to try again instead.
+    if not ha_client.is_ha_reachable():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Home Assistant unreachable",
+        )
     new_binding_secret = await _verify_or_claim_binding(row, request)
     if new_binding_secret:
         _set_binding_cookie(response, request, slug, new_binding_secret, row["expires_at"])

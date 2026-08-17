@@ -113,6 +113,15 @@
 
   <main class="max-w-4xl mx-auto px-5 py-6">
     <h2 class="sr-only">{{ t('guest_tokens_heading') }}</h2>
+
+    <!-- Shown while Home Assistant is away: the panel itself is fine. -->
+    <div id="ha-offline" role="status" class="hidden mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 flex items-start gap-3">
+      <span aria-hidden="true" class="material-symbols-outlined text-lg text-amber-600 dark:text-amber-400">cloud_off</span>
+      <div>
+        <p class="text-sm font-display font-semibold">{{ t('ha_offline') }}</p>
+        <p class="text-xs text-muted mt-1 leading-relaxed">{{ t('ha_offline_hint') }}</p>
+      </div>
+    </div>
     <!-- Create Token Button -->
     <button data-action="open-create-modal" class="w-full py-3 rounded-xl bg-primary hover:bg-primary-hover text-white font-display font-semibold text-sm transition-colors flex items-center justify-center gap-2 mb-6 shadow-lg shadow-primary/20">
       <span aria-hidden="true" class="material-symbols-outlined text-lg">add_circle</span>
@@ -516,6 +525,7 @@ function showApp() {
   loadTokens();
   loadActivity();
   loadEntities();
+  refreshHaStatus();
   startAutoRefresh();
   requestAnimationFrame(updateThemeToggles);
 }
@@ -530,6 +540,18 @@ async function loadTokens() {
   tokens = await r.json();
   renderTokens();
   updateStats();
+}
+
+// A panel that loads with an empty entity list looks broken; saying that Home
+// Assistant is the one missing costs one request.
+async function refreshHaStatus() {
+  const banner = document.getElementById('ha-offline');
+  try {
+    const r = await fetch(`${BASE}/admin/ha/status`);
+    if (!r.ok) return;
+    const s = await r.json();
+    banner.classList.toggle('hidden', !!s.reachable);
+  } catch { /* offline browser side — leave the banner as it was */ }
 }
 
 async function loadActivity() {
@@ -1707,6 +1729,7 @@ function startAutoRefresh() {
     if (!document.getElementById('app').classList.contains('hidden') && document.visibilityState === 'visible') {
       loadTokens();
       loadActivity();
+      refreshHaStatus();
     }
   }, 30000);
 }
@@ -1719,6 +1742,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && !document.getElementById('app').classList.contains('hidden')) {
     loadTokens();
     loadActivity();
+    refreshHaStatus();
   }
 });
 

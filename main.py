@@ -56,12 +56,29 @@ async def lifespan(app: FastAPI):
 
     ha_client.init_client()  # sync — no await
 
+    # Home Assistant being down is not a reason to refuse to start. Both run as
+    # ordinary containers with no ordering between them, so a host that reboots
+    # can easily bring this one up first; treating that as fatal left the panel
+    # unreachable for days after a boot that was only seconds out of order.
+    # The admin panel and the database do not need Home Assistant to be served,
+    # and the watchdog reconnects on its own once it answers.
     try:
         await ha_client.validate_connectivity()
     except Exception as exc:
-        logger.error("Cannot reach Home Assistant: %s", exc)
-        raise RuntimeError("Home Assistant unreachable at startup") from exc
+        logger.warning(
+            "Home Assistant unreachable at startup (%s) — serving anyway, "
+            "reconnecting in the background",
+            exc,
+        )
 
+    connectivity_task = asyncio.create_task(ha_client.connectivity_watchdog())
+    connectivity_task.add_done_callback(
+        lambda t: logger.error("Connectivity watchdog terminated: %s", t.exception())
+        if not t.cancelled() and t.exception() else None
+    )
+
+    # Retries by itself with its own backoff, so it is started even while Home
+    # Assistant is down.
     await ha_client.start_ws_listener()
 
     async def _cleanup_loop():
@@ -81,6 +98,7 @@ async def lifespan(app: FastAPI):
 
     # M-7: Shutdown with timeout
     cleanup_task.cancel()
+    connectivity_task.cancel()
     try:
         await asyncio.wait_for(ha_client.stop_ws_listener(), timeout=5)
     except asyncio.TimeoutError:
@@ -191,15 +209,26 @@ async def admin_dashboard_page(request: Request):
 # M-6: Health check with WS and DB status
 @app.get("/health")
 async def health():
+    """Is this container serving? Not: is the whole house working?
+
+    Only what this process owns — the database — can make it unhealthy. Home
+    Assistant being away is reported in the body, but it used to also turn the
+    container red in Docker, which blamed the wrong service and hid a real
+    crash behind an outage next door.
+    """
     ws_ok = ha_client.is_ws_healthy()
+    ha_ok = ha_client.is_ha_reachable()
     try:
         await db.get_db()
         db_ok = True
     except Exception:
         db_ok = False
-    if ws_ok and db_ok:
-        return {"status": "ok", "ws": "connected", "db": "accessible"}
-    return JSONResponse(
-        status_code=503,
-        content={"status": "degraded", "ws": "connected" if ws_ok else "disconnected", "db": "accessible" if db_ok else "unavailable"},
-    )
+    body = {
+        "status": "ok" if (ws_ok and db_ok) else "degraded",
+        "ws": "connected" if ws_ok else "disconnected",
+        "ha": "reachable" if ha_ok else "unreachable",
+        "db": "accessible" if db_ok else "unavailable",
+    }
+    if db_ok:
+        return body
+    return JSONResponse(status_code=503, content=body)

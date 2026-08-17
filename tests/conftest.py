@@ -62,6 +62,8 @@ def mock_ha_client():
         "stop_ws_listener": AsyncMock(),
         "close_client": AsyncMock(),
         "is_ws_healthy": MagicMock(return_value=True),
+        "is_ha_reachable": MagicMock(return_value=True),
+        "connectivity_watchdog": AsyncMock(),
         "get_states": AsyncMock(return_value=[]),
         "call_service": AsyncMock(return_value=[]),
         "fire_event": AsyncMock(return_value={}),

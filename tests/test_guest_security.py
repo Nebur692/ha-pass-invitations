@@ -940,6 +940,21 @@ async def test_bind_claims_the_binding_and_sets_cookie(client, sample_token, moc
     )
 
 
+async def test_bind_is_refused_while_home_assistant_is_unreachable(
+    client, sample_token, mock_ha_client
+):
+    """Don't spend a one-shot pairing on a page that can show nothing.
+
+    Only the admin can undo a pairing, so a guest who taps during an outage
+    would otherwise be locked out of a link that was never used.
+    """
+    mock_ha_client["is_ha_reachable"].return_value = False
+    resp = await client.post(f"/g/{sample_token['slug']}/bind")
+    assert resp.status_code == 503
+    row = await db.get_token_by_id(sample_token["id"])
+    assert row["bound_secret"] is None
+
+
 async def test_controls_are_served_once_bound(client, sample_token, mock_ha_client):
     await client.post(f"/g/{sample_token['slug']}/bind")
     resp = await client.get(f"/g/{sample_token['slug']}")

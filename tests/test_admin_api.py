@@ -654,6 +654,29 @@ async def test_unbind_nonexistent_token_404(client, admin_session, mock_ha_clien
 
 
 # ---------------------------------------------------------------------------
+# Home Assistant reachability, so the panel can explain an empty entity list
+# ---------------------------------------------------------------------------
+
+async def test_ha_status_reports_reachable(client, admin_session, mock_ha_client):
+    resp = await client.get("/admin/ha/status", cookies=admin_session)
+    assert resp.status_code == 200
+    assert resp.json() == {"reachable": True, "streaming": True}
+
+
+async def test_ha_status_reports_unreachable(client, admin_session, mock_ha_client):
+    mock_ha_client["is_ha_reachable"].return_value = False
+    mock_ha_client["is_ws_healthy"].return_value = False
+    resp = await client.get("/admin/ha/status", cookies=admin_session)
+    assert resp.status_code == 200
+    assert resp.json() == {"reachable": False, "streaming": False}
+
+
+async def test_ha_status_requires_admin(client, mock_ha_client):
+    resp = await client.get("/admin/ha/status")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # Suggested entities (narrow, category-based autodetection)
 # ---------------------------------------------------------------------------
 

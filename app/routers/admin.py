@@ -506,6 +506,20 @@ async def presence_calibration(_: str = Depends(require_admin)) -> dict:
     return await _name_calibration(await presence.calibration_snapshot())
 
 
+@router.get("/ha/status")
+async def ha_status(_: str = Depends(require_admin)) -> dict:
+    """Whether Home Assistant is answering, so the panel can say so.
+
+    The panel is served whether or not it is, so without this an admin looking
+    at an empty entity list has no way to tell a broken link from a neighbour
+    that is merely still booting.
+    """
+    return {
+        "reachable": ha_client.is_ha_reachable(),
+        "streaming": ha_client.is_ws_healthy(),
+    }
+
+
 @router.get("/ha/entities")
 async def ha_entities(_: str = Depends(require_admin)) -> list[dict]:
     try:

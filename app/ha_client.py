@@ -26,6 +26,11 @@ WS_PING_INTERVAL = 30
 WS_BACKOFF_INIT = 2
 WS_BACKOFF_MAX = 60
 MAX_AUTH_RETRIES = 5
+# How the watchdog paces itself: quick retries while Home Assistant is down,
+# a slow pulse once it answers again.
+CONNECT_RETRY_INIT = 5
+CONNECT_RETRY_MAX = 60
+CONNECT_CHECK_INTERVAL = 30
 
 # ---------------------------------------------------------------------------
 # Persistent HTTP client
@@ -213,11 +218,58 @@ async def logbook_log(data: dict) -> Any:
     return resp.json()
 
 
+_rest_healthy: bool = False
+
+
 async def validate_connectivity() -> None:
-    """Called at startup — raises on failure."""
-    resp = await _require_client().get("/api/")
-    resp.raise_for_status()
-    logger.info("Home Assistant connectivity validated.")
+    """Ask Home Assistant whether it is there. Raises if it is not.
+
+    Also records the answer, so the rest of the app can tell a guest or an
+    admin what is going on instead of failing at them with a stack trace.
+    Logging only on a change of state keeps the watchdog below from writing a
+    line every time it looks.
+    """
+    global _rest_healthy
+    was_healthy = _rest_healthy
+    try:
+        resp = await _require_client().get("/api/")
+        resp.raise_for_status()
+    except Exception:
+        _rest_healthy = False
+        raise
+    _rest_healthy = True
+    if not was_healthy:
+        logger.info("Home Assistant connectivity validated.")
+
+
+def is_ha_reachable() -> bool:
+    """True if the last check reached Home Assistant.
+
+    A live WebSocket counts as proof too: it is authenticated against the same
+    instance, so if events are flowing the API is up whatever the last REST
+    check happened to catch.
+    """
+    return _rest_healthy or is_ws_healthy()
+
+
+async def connectivity_watchdog() -> None:
+    """Keep `is_ha_reachable()` honest, and wait out a Home Assistant restart.
+
+    The app used to refuse to start if Home Assistant did not answer, which
+    turned a container that merely booted first into an outage lasting until
+    someone noticed. Nothing here has to succeed for the panel to be served.
+    """
+    delay = CONNECT_RETRY_INIT
+    while True:
+        try:
+            await validate_connectivity()
+        except Exception as exc:
+            logger.warning("Home Assistant unreachable (%s) — retrying in %ds…", exc, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, CONNECT_RETRY_MAX)
+            continue
+        delay = CONNECT_RETRY_INIT
+        await asyncio.sleep(CONNECT_CHECK_INTERVAL)
 
 
 # ---------------------------------------------------------------------------
