@@ -77,6 +77,13 @@ future date/time, or a recurring weekly window), while staying self-hosted and a
   guest's own browser language — no override, since a guest link isn't "owned" by anyone who'd have
   a profile to set one.
 
+- **Survives Home Assistant being down.** Both run as ordinary containers with no ordering between
+  them, so a host that reboots can easily bring this one up first. It used to treat that as fatal
+  and exit; now it serves the panel anyway and a watchdog reconnects on its own the moment Home
+  Assistant answers. The dashboard says so plainly while it waits, and a guest is asked to try
+  again rather than burning a one-shot pairing on a page that could show no devices. `/health`
+  reports it too, but keeps a `200`: a neighbour's outage must not paint this container red.
+
 None of the above touches the original security model: the same entity/service allowlist,
 forbidden-key stripping, rate limiting, and IP allowlisting from upstream still apply — these are
 additive restrictions and scheduling features, not a rewrite of the trust boundary.
@@ -306,6 +313,14 @@ semanal recurrente), manteniéndolo autoalojado y auditable.
   letón, lituano, maltés, polaco, portugués, rumano, eslovaco, esloveno, español, sueco) siempre
   detecta automáticamente el idioma del navegador del invitado — sin opción manual, ya que un
   enlace de invitado no tiene "dueño" con un perfil donde fijar uno.
+
+- **Aguanta que Home Assistant esté caído.** Los dos corren como contenedores normales sin ningún
+  orden entre ellos, así que un servidor que reinicia puede levantar este primero sin problema.
+  Antes eso era fatal y se salía; ahora sirve el panel igual y un vigilante reconecta solo en
+  cuanto Home Assistant responda. El panel lo dice claramente mientras espera, y al invitado se le
+  pide que lo intente de nuevo en vez de gastar una vinculación de un solo uso en una página que no
+  podría enseñar ningún dispositivo. `/health` también lo informa, pero sigue devolviendo `200`:
+  la caída del vecino no debe pintar de rojo a este contenedor.
 
 Nada de lo anterior toca el modelo de seguridad original: la misma lista blanca de entidad/
 servicio, el filtrado de claves prohibidas, el rate limiting y la lista blanca de IP de la versión
