@@ -1160,3 +1160,48 @@ async def test_unbinding_forgets_the_device_too(client, sample_token, mock_ha_cl
     await db.unbind_token(sample_token["id"])
     row = await db.get_token_by_id(sample_token["id"])
     assert row["bound_user_agent"] is None
+
+
+async def test_the_app_block_is_hidden_until_the_script_confirms_android(
+    client, sample_token, mock_ha_client
+):
+    """Offering an iPhone guest an Android APK is an instruction they can't follow.
+
+    The server serves one page to everyone, so the section ships hidden and
+    only the client-side check reveals it. What matters here is that it starts
+    hidden and that the Android-only intent link is what reveals it.
+    """
+    resp = await client.get(f"/g/{sample_token['slug']}")
+    assert resp.status_code == 200
+    assert 'id="app-section" class="hidden"' in resp.text
+    assert "/android/i.test(navigator.userAgent)" in resp.text
+
+
+async def test_the_open_in_app_link_uses_a_custom_scheme_with_a_fallback(
+    client, sample_token, mock_ha_client
+):
+    """An https App Link cannot work for a generic app: Android only verifies
+    hosts named in the app's own manifest, which cannot list every
+    self-hosted domain. A custom scheme works against any installation, and
+    browser_fallback_url is what catches a guest who has no app installed."""
+    resp = await client.get(f"/g/{sample_token['slug']}")
+    assert "scheme=hapass" in resp.text
+    assert "package=io.github.nebur692.hapass" in resp.text
+    assert "S.browser_fallback_url=" in resp.text
+
+
+async def test_the_invitation_is_copied_before_handing_over_to_the_app(
+    client, sample_token, mock_ha_client
+):
+    """The clipboard is the net for the two cases the intent cannot cover:
+    a chat app's built-in browser that ignores intent://, and a guest who had
+    to install from the store first and returns to an app that knows nothing."""
+    resp = await client.get(f"/g/{sample_token['slug']}")
+    body = resp.text
+    assert "copyInvitation" in body
+    # Copy has to finish before the page is handed over, or navigation cancels it.
+    assert body.index("await copyInvitation();") < body.index("location.href = intentUrl;")
+    # Plenty of installations are plain http on a LAN address, where the async
+    # Clipboard API does not exist.
+    assert "window.isSecureContext" in body
+    assert "document.execCommand('copy')" in body
