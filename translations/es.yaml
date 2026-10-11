@@ -38,3 +38,6 @@ configuration:
   ble_min_rssi:
     name: Señal mínima
     description: "Potencia mínima (dBm) para aceptar una detección; -70 es un buen punto de partida. Menos negativo = hay que estar más cerca."
+  trusted_proxies:
+    name: Proxies de confianza
+    description: "Array JSON de CIDRs cuya cabecera X-Forwarded-For se cree (p.ej. [\"192.168.1.5/32\"]). Déjalo vacío para confiar en loopback y en los rangos privados, que cubre un proxy en la misma red."

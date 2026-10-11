@@ -22,6 +22,7 @@ mapping = {
     'presence_policy': 'PRESENCE_POLICY',
     'ble_scanners': 'BLE_SCANNERS',
     'ble_min_rssi': 'BLE_MIN_RSSI',
+    'trusted_proxies': 'TRUSTED_PROXIES',
 }
 for key, env in mapping.items():
     val = opts.get(key, '')

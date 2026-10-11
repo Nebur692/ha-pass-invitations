@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     # request originates from one of these ranges. Empty = no restriction
     # (today's behavior, fully backward compatible).
     local_network_cidrs: list[str] = Field(default_factory=list)
+    # Peers whose X-Forwarded-For is believed (see app/client_ip.py). The
+    # default covers a proxy on the same machine or the same private network,
+    # which is how this add-on is deployed (HA ingress, Nginx Proxy Manager,
+    # cloudflared, Caddy...). A visitor arriving straight from the internet is
+    # never in these ranges, so whatever header they send is ignored.
+    trusted_proxies: list[str] = Field(default_factory=lambda: [
+        "127.0.0.0/8", "::1/128",
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
+    ])
 
     # --- Presence proofs -------------------------------------------------
     # Which proofs of "the guest is physically here" are accepted before a

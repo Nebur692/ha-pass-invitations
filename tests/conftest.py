@@ -72,6 +72,7 @@ def mock_ha_client():
         "invalidate_entity_cache": AsyncMock(),
         "is_ble_healthy": MagicMock(return_value=True),
         "get_device_mac_names": AsyncMock(return_value={}),
+        "get_entity_areas": AsyncMock(return_value=([], {})),
         "restart_ws_listener": AsyncMock(),
     }
     with patch.multiple("app.ha_client", **mocks):

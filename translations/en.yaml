@@ -38,3 +38,6 @@ configuration:
   ble_min_rssi:
     name: Minimum signal
     description: "Minimum signal strength (dBm) for a sighting to count; -70 is a good starting point. Less negative = must be closer."
+  trusted_proxies:
+    name: Trusted proxies
+    description: "JSON array of CIDRs whose X-Forwarded-For header is believed (e.g. [\"192.168.1.5/32\"]). Leave empty to trust loopback and private ranges, which covers a proxy on the same network."

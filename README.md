@@ -83,6 +83,11 @@ future date/time, or a recurring weekly window), while staying self-hosted and a
   Assistant answers. The dashboard says so plainly while it waits, and a guest is asked to try
   again rather than burning a one-shot pairing on a page that could show no devices. `/health`
   reports it too, but keeps a `200`: a neighbour's outage must not paint this container red.
+- **Guest page grouped by room.** When a guest's devices span more than one Home Assistant area,
+  the page shows them room by room, in Home Assistant's own area order; devices with no area go
+  last under "Other". An entity takes its device's area unless it has one of its own, as in Home
+  Assistant. Only the rooms the guest has something in are named. If the areas cannot be read,
+  the page keeps the usual list by kind of device.
 
 None of the above touches the original security model: the same entity/service allowlist,
 forbidden-key stripping, rate limiting, and IP allowlisting from upstream still apply — these are
@@ -168,7 +173,7 @@ log retention, guest URL — see [DOCS.md](DOCS.md)), this fork adds:
 > **Settings** button, and apply without a restart. The environment seeds the
 > value; once you change it in the panel the stored value wins, and you can
 > revert it. Only credentials and connection details — `HA_BASE_URL`,
-> `HA_TOKEN`, `DB_PATH`, `PORT`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` — stay
+> `HA_TOKEN`, `DB_PATH`, `PORT`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `TRUSTED_PROXIES` — stay
 > environment-only: the app cannot read its own database to find out where its
 > database is.
 >
@@ -180,6 +185,7 @@ log retention, guest URL — see [DOCS.md](DOCS.md)), this fork adds:
 |---|---|---|
 | `TIMEZONE` | IANA timezone used to evaluate recurring weekly windows | `UTC` |
 | `LOCAL_NETWORK_CIDRS` | JSON array of CIDRs considered "home network" for access-domain commands (e.g. `["192.168.0.0/16"]`). Empty/unset = no restriction. | `[]` |
+| `TRUSTED_PROXIES` | JSON array of CIDRs whose `X-Forwarded-For` is believed. The visitor is the right-most address in that header that is not itself one of these proxies; from any other peer the header is ignored. Environment-only. | loopback and private ranges |
 | `PRESENCE_MODES` | JSON array of proofs accepted before an access-domain command runs: `["local_network"]`, `["ha_ble"]`, or both. | `["local_network"]` |
 | `PRESENCE_POLICY` | `any` (one proof is enough) or `all` (every mode must pass). | `any` |
 | `BLE_SCANNERS` | JSON array of the Bluetooth scanner MACs that count as "at the door". Required by `ha_ble`. | `[]` |
@@ -321,6 +327,12 @@ semanal recurrente), manteniéndolo autoalojado y auditable.
   pide que lo intente de nuevo en vez de gastar una vinculación de un solo uso en una página que no
   podría enseñar ningún dispositivo. `/health` también lo informa, pero sigue devolviendo `200`:
   la caída del vecino no debe pintar de rojo a este contenedor.
+- **Página del invitado agrupada por habitaciones.** Cuando los dispositivos de un invitado están
+  en más de un área de Home Assistant, la página los enseña habitación por habitación, en el mismo
+  orden de áreas que Home Assistant; los que no tienen área van al final, en "Otros". Una entidad
+  toma el área de su dispositivo salvo que tenga una propia, igual que en Home Assistant. Solo se
+  nombran las habitaciones en las que el invitado tiene algo. Si no se pueden leer las áreas, la
+  página sigue con la lista de siempre por tipo de dispositivo.
 
 Nada de lo anterior toca el modelo de seguridad original: la misma lista blanca de entidad/
 servicio, el filtrado de claves prohibidas, el rate limiting y la lista blanca de IP de la versión
@@ -411,7 +423,7 @@ contacto, marca, retención de logs, URL de invitado — ver [DOCS.md](DOCS.md))
 > el botón **Ajustes**, y se aplican sin reiniciar. El entorno da el valor
 > inicial; en cuanto lo cambias en el panel manda el guardado, y puedes
 > revertirlo. Solo las credenciales y los datos de conexión —`HA_BASE_URL`,
-> `HA_TOKEN`, `DB_PATH`, `PORT`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`— siguen
+> `HA_TOKEN`, `DB_PATH`, `PORT`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `TRUSTED_PROXIES`— siguen
 > siendo exclusivos del entorno: la aplicación no puede leer su propia base de
 > datos para averiguar dónde está su base de datos.
 >
@@ -423,6 +435,7 @@ contacto, marca, retención de logs, URL de invitado — ver [DOCS.md](DOCS.md))
 |---|---|---|
 | `TIMEZONE` | Zona horaria IANA usada para evaluar las ventanas semanales recurrentes | `UTC` |
 | `LOCAL_NETWORK_CIDRS` | Array JSON de CIDRs considerados "red de casa" para los comandos de dominios de acceso (p.ej. `["192.168.0.0/16"]`). Vacío/sin definir = sin restricción. | `[]` |
+| `TRUSTED_PROXIES` | Array JSON de CIDRs cuyo `X-Forwarded-For` se cree. El visitante es la dirección más a la derecha de esa cabecera que no sea uno de estos proxies; si llega de cualquier otro sitio, la cabecera se ignora. Solo por variable de entorno. | loopback y rangos privados |
 | `PRESENCE_MODES` | Array JSON de pruebas aceptadas antes de ejecutar un comando de dominio de acceso: `["local_network"]`, `["ha_ble"]`, o ambas. | `["local_network"]` |
 | `PRESENCE_POLICY` | `any` (basta con una prueba) o `all` (deben cumplirse todas). | `any` |
 | `BLE_SCANNERS` | Array JSON con las MAC de los escáneres Bluetooth que cuentan como "en la puerta". Obligatorio para `ha_ble`. | `[]` |

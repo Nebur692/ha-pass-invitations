@@ -31,6 +31,7 @@ options:
   presence_policy: "any"
   ble_scanners: ""
   ble_min_rssi: -70
+  trusted_proxies: ""
 schema:
   admin_username: "str?"
   admin_password: "password?"
@@ -45,4 +46,5 @@ schema:
   presence_policy: "list(any|all)?"
   ble_scanners: "str?"
   ble_min_rssi: "int(-120,0)?"
+  trusted_proxies: "str?"
 image: "ghcr.io/nebur692/ha-pass-invitations"

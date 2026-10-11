@@ -427,6 +427,76 @@ async def get_device_mac_names(force: bool = False) -> dict[str, str]:
     return names
 
 
+# ---------------------------------------------------------------------------
+# Areas — which room each entity is in, also only reachable over WebSocket
+# ---------------------------------------------------------------------------
+AREA_FETCH_TIMEOUT = 5
+
+_areas: list[tuple[str, str]] = []
+_entity_areas: dict[str, str] = {}
+_areas_at: float = 0.0
+_areas_lock = asyncio.Lock()
+
+
+async def _fetch_registries() -> tuple[list, list, list]:
+    async with websockets.connect(_build_ws_url(), max_size=None) as ws:
+        await ws.recv()  # auth_required
+        await ws.send(json.dumps({"type": "auth", "access_token": settings.ha_token}))
+        if json.loads(await ws.recv()).get("type") != "auth_ok":
+            raise RuntimeError("HA WebSocket auth failed")
+        commands = {
+            1: "config/area_registry/list",
+            2: "config/entity_registry/list",
+            3: "config/device_registry/list",
+        }
+        for msg_id, command in commands.items():
+            await ws.send(json.dumps({"id": msg_id, "type": command}))
+        results: dict[int, list] = {}
+        while len(results) < len(commands):
+            message = json.loads(await ws.recv())
+            if message.get("id") in commands:
+                if not message.get("success"):
+                    raise RuntimeError(f"HA refused {commands[message['id']]}")
+                results[message["id"]] = message.get("result") or []
+    return results[1], results[2], results[3]
+
+
+async def get_entity_areas(force: bool = False) -> tuple[list[tuple[str, str]], dict[str, str]]:
+    """Home Assistant's areas, in its own order, and entity_id -> area_id.
+
+    An entity rarely carries an area itself: almost always it inherits the one
+    of its device (in the author's home, 240 of 281 doors, lights and buttons
+    did, and only 3 had their own). Reading the entity registry alone would
+    leave nearly everything without a room, so the device's area fills in.
+
+    Same pattern as get_device_mac_names(): a short-lived WebSocket, cached.
+    Raises on any failure — the caller decides that rooms are optional.
+    """
+    global _areas, _entity_areas, _areas_at
+    async with _areas_lock:
+        now = time.monotonic()
+        if not force and _areas_at and now - _areas_at < DEVICE_REGISTRY_TTL:
+            return _areas, _entity_areas
+
+        area_rows, entity_rows, device_rows = await asyncio.wait_for(
+            _fetch_registries(), AREA_FETCH_TIMEOUT
+        )
+        areas = [
+            (a["area_id"], a.get("name") or a["area_id"])
+            for a in area_rows if a.get("area_id")
+        ]
+        known = {area_id for area_id, _ in areas}
+        device_area = {d.get("id"): d.get("area_id") for d in device_rows}
+        entity_areas: dict[str, str] = {}
+        for e in entity_rows:
+            area_id = e.get("area_id") or device_area.get(e.get("device_id"))
+            if area_id in known and e.get("entity_id"):
+                entity_areas[e["entity_id"]] = area_id
+
+        _areas, _entity_areas, _areas_at = areas, entity_areas, now
+        return areas, entity_areas
+
+
 async def _ws_listener() -> None:
     global _msg_id, _ws_healthy
     ws_url = _build_ws_url()

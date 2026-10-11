@@ -29,6 +29,7 @@ from fastapi.templating import Jinja2Templates
 from app import database as db
 from app import ha_client
 from app import presence
+from app.client_ip import client_ip as real_client_ip
 from app.config import settings
 from app.context import base_context
 from app import i18n
@@ -94,16 +95,8 @@ def _guest_i18n_ctx(request: Request) -> dict:
     }
 
 def _client_ip(request: Request) -> str:
-    """Extract the client IP from X-Forwarded-For (set by reverse proxy).
-
-    IMPORTANT: HAPass MUST be deployed behind a reverse proxy (Caddy, nginx,
-    Cloudflare Tunnel, etc.) that overwrites the X-Forwarded-For header with the
-    true client IP. Without this, clients can spoof their IP to bypass allowlists.
-    """
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """The guest's real IP — see app/client_ip.py for which proxies are believed."""
+    return real_client_ip(request)
 
 
 def _ip_in_cidrs(client_ip: str, cidrs: list[str]) -> bool:
@@ -576,7 +569,33 @@ async def guest_state(request: Request, response: Response, slug: str = Path(max
         if eid not in states:
             states[eid] = {"entity_id": eid, "state": "unavailable", "attributes": {}}
 
-    return {"entities": entity_ids, "states": states}
+    return {"entities": entity_ids, "states": states, "rooms": await _rooms(entity_ids)}
+
+
+async def _rooms(entity_ids: list[str]) -> list[dict] | None:
+    """The guest's entities split by Home Assistant area, in HA's area order.
+
+    Entities with no area go last, under name None. Only the guest's own
+    entities are looked at, so no other room of the house is named. None when
+    the areas cannot be read: the page then falls back to the flat list, which
+    is a worse layout but not a broken one.
+    """
+    try:
+        areas, entity_areas = await ha_client.get_entity_areas()
+    except Exception:
+        logger.warning("Could not read Home Assistant areas; showing a flat list", exc_info=True)
+        return None
+    by_area: dict[str | None, list[str]] = {}
+    for eid in entity_ids:
+        by_area.setdefault(entity_areas.get(eid), []).append(eid)
+    rooms = [
+        {"name": name, "entities": by_area[area_id]}
+        for area_id, name in areas
+        if area_id in by_area
+    ]
+    if None in by_area:
+        rooms.append({"name": None, "entities": by_area[None]})
+    return rooms
 
 
 # ---------------------------------------------------------------------------
