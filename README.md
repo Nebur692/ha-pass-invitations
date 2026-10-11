@@ -54,9 +54,10 @@ future date/time, or a recurring weekly window), while staying self-hosted and a
   chosen per token.
 - **Country allowlist** — per token, optionally restrict the *entire* link (viewing included, not
   just commands) to visitors whose public IP is located in one or more chosen countries (ISO codes,
-  e.g. `ES, PT`). Resolved once at creation time against the free
-  [ipdeny.com](https://www.ipdeny.com/) country IP blocks and enforced the same way as the
-  network-CIDR check above. **Different guarantee than the local-network check**: this only narrows
+  e.g. `ES, PT`). Resolved against the free [ipdeny.com](https://www.ipdeny.com/) country IP
+  blocks when the token is created, and again once a day, so a long-lived link follows the
+  country's current ranges (each country's list is downloaded at most every 30 days; if it cannot
+  be, the token keeps the ranges it had). Enforced the same way as the network-CIDR check above. **Different guarantee than the local-network check**: this only narrows
   down *which country* a connection comes from, not whether the guest is actually on the home
   Wi-Fi — the two are independent and can both apply to the same token.
 - **Single-device link binding** — the first browser/device to open a guest link claims it (a
@@ -296,8 +297,10 @@ semanal recurrente), manteniéndolo autoalojado y auditable.
   complemento (`LOCAL_NETWORK_CIDRS`), no algo que se elija por token.
 - **Lista blanca de países** — por token, restringe opcionalmente **todo** el enlace (incluida su
   visualización, no solo los comandos) a visitantes cuya IP pública esté en uno o varios países
-  elegidos (códigos ISO, p.ej. `ES, PT`). Se resuelve una sola vez al crear el token contra los
-  bloques de IP por país gratuitos de [ipdeny.com](https://www.ipdeny.com/), y se aplica igual que
+  elegidos (códigos ISO, p.ej. `ES, PT`). Se resuelve contra los bloques de IP por país gratuitos
+  de [ipdeny.com](https://www.ipdeny.com/) al crear el token y otra vez cada día, así que un enlace
+  de larga duración sigue los rangos actuales del país (la lista de cada país se descarga como
+  mucho cada 30 días; si no se puede, el token conserva los rangos que tenía). Se aplica igual que
   la comprobación de red local de arriba. **Garantía distinta a la de red local:** esto solo acota
   de qué país viene la conexión, no si el invitado está de verdad en el WiFi de casa — son
   independientes y pueden aplicarse ambas al mismo token.

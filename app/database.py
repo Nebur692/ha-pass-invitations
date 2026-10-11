@@ -241,6 +241,26 @@ async def update_token_expiry(token_id: str, expires_at: int) -> None:
     await db.commit()
 
 
+async def list_country_tokens() -> list[aiosqlite.Row]:
+    """Every token restricted by country, expired and revoked ones included:
+    those can be renewed with the same settings, and should come back with
+    current ranges rather than the ones from the day they were created."""
+    db = await get_db()
+    async with db.execute(
+        "SELECT id, country_allowlist, ip_allowlist FROM tokens WHERE country_allowlist IS NOT NULL"
+    ) as cur:
+        return await cur.fetchall()
+
+
+async def update_token_ip_allowlist(token_id: str, ip_allowlist: list[str]) -> None:
+    db = await get_db()
+    await db.execute(
+        "UPDATE tokens SET ip_allowlist = ? WHERE id = ?",
+        (json.dumps(ip_allowlist), token_id),
+    )
+    await db.commit()
+
+
 async def update_token_schedule(
     token_id: str,
     starts_at: int | None,

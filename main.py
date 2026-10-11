@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import database as db
+from app import geoip
 from app import ha_client
 from app.config import settings
 from app.context import base_context
@@ -94,9 +95,22 @@ async def lifespan(app: FastAPI):
     cleanup_task = asyncio.create_task(_cleanup_loop())
     cleanup_task.add_done_callback(lambda t: logger.error("Cleanup task terminated: %s", t.exception()) if not t.cancelled() and t.exception() else None)
 
+    async def _country_refresh_loop():
+        await asyncio.sleep(geoip.TOKEN_REFRESH_FIRST_DELAY_SECONDS)
+        while True:
+            try:
+                await geoip.refresh_token_allowlists()
+            except Exception:
+                logger.exception("Country range refresh failed")
+            await asyncio.sleep(geoip.TOKEN_REFRESH_INTERVAL_SECONDS)
+
+    country_task = asyncio.create_task(_country_refresh_loop())
+    country_task.add_done_callback(lambda t: logger.error("Country refresh task terminated: %s", t.exception()) if not t.cancelled() and t.exception() else None)
+
     yield
 
     # M-7: Shutdown with timeout
+    country_task.cancel()
     cleanup_task.cancel()
     connectivity_task.cancel()
     try:

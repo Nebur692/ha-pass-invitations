@@ -15,11 +15,14 @@ Zone files are cached to disk (default 30 days) so normal operation never
 depends on ipdeny being reachable — only the *first* time a given country
 is used, or once the cache goes stale, does this hit the network.
 """
+import json
 import logging
 import time
 from pathlib import Path
 
 import httpx
+
+from app import database as db
 
 logger = logging.getLogger(__name__)
 
@@ -106,3 +109,41 @@ async def resolve_countries_to_cidrs(country_codes: list[str]) -> list[str]:
         for cidr in await get_country_cidrs(code):
             seen[cidr] = None
     return list(seen)
+
+
+# How often tokens restricted by country get their ranges recomputed. Cheap:
+# it only reads the zone cache, which itself hits ipdeny at most once per
+# country every CACHE_MAX_AGE_SECONDS.
+TOKEN_REFRESH_INTERVAL_SECONDS = 24 * 3600
+# The first pass waits a little after startup, so a restart is not also a
+# burst of work, but still runs on hosts that restart more often than daily.
+TOKEN_REFRESH_FIRST_DELAY_SECONDS = 600
+
+
+async def refresh_token_allowlists() -> int:
+    """Recompute the CIDRs of every token restricted by country.
+
+    A token's countries are resolved into CIDRs once, when it is created, and
+    that list is what the guest router enforces. Without this, a link that
+    never expires kept the ranges of its first day forever, however much the
+    country's allocations moved since. Returns how many tokens changed; a
+    token whose countries cannot be resolved keeps the list it had.
+    """
+    changed = 0
+    for row in await db.list_country_tokens():
+        try:
+            countries = json.loads(row["country_allowlist"])
+            if not countries:
+                continue
+            fresh = await resolve_countries_to_cidrs(countries)
+        except Exception:
+            logger.warning("Could not refresh the country ranges of token %s; keeping the old ones",
+                           row["id"], exc_info=True)
+            continue
+        current = json.loads(row["ip_allowlist"]) if row["ip_allowlist"] else []
+        if fresh and set(fresh) != set(current):
+            await db.update_token_ip_allowlist(row["id"], fresh)
+            changed += 1
+    if changed:
+        logger.info("Refreshed the country ranges of %d token(s)", changed)
+    return changed
