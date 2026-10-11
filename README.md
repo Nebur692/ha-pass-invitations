@@ -121,7 +121,7 @@ use the Add-on method above.
 1. **Docker → Add Container → scroll down → Template repositories**, add:
 
    ```
-   https://raw.githubusercontent.com/Nebur692/ha-pass-invitations/main/ha-pass-invitations.xml
+   https://github.com/Nebur692/unraid-community-apps
    ```
 
 2. Save, then start a new **Add Container** again — pick **ha-pass-invitations** from the template
@@ -372,7 +372,7 @@ Supervisor), que no puede usar el método de complemento de arriba.
 1. **Docker → Add Container → baja hasta Template repositories**, añade:
 
    ```
-   https://raw.githubusercontent.com/Nebur692/ha-pass-invitations/main/ha-pass-invitations.xml
+   https://github.com/Nebur692/unraid-community-apps
    ```
 
 2. Guarda, y vuelve a pulsar **Add Container** — elige **ha-pass-invitations** en el desplegable de
